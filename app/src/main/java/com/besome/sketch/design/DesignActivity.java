@@ -810,7 +810,11 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
                     return;
                 }
                 var scheme = filename.endsWith(".xml") ? CodeViewerActivity.SCHEME_XML : CodeViewerActivity.SCHEME_JAVA;
-                launchActivity(CodeViewerActivity.class, null, new Pair<>("code", code), new Pair<>("sc_id", sc_id), new Pair<>("scheme", scheme));
+                launchActivity(CodeViewerActivity.class, null,
+                        new Pair<>("code", code),
+                        new Pair<>("sc_id", sc_id),
+                        new Pair<>("scheme", scheme),
+                        new Pair<>(CodeViewerActivity.EXTRA_FILENAME, filename)); // ← fix: pass filename so edits can be saved
             });
         }).start();
     }

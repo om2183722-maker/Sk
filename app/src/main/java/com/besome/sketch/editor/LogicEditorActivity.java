@@ -2460,6 +2460,7 @@ public class LogicEditorActivity extends BaseAppCompatActivity implements View.O
         intent.putExtra("code", code);
         intent.putExtra("sc_id", scId);
         intent.putExtra("scheme", CodeViewerActivity.SCHEME_JAVA);
+        intent.putExtra(CodeViewerActivity.EXTRA_FILENAME, M.getJavaName()); // ← fix: pass filename so edits can be saved
         startActivity(intent);
     }
 
