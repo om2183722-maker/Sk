@@ -1052,7 +1052,6 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
         public volatile boolean canceled;
         private volatile boolean isBuildFinished;
         private boolean isShowingNotification = false;
-        /** Keeps CPU alive during background build when enabled in Advanced settings */
         private android.os.PowerManager.WakeLock wakeLock;
 
         public BuildTask(DesignActivity activity) {
@@ -1079,7 +1078,7 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
                 activity.r.a("P1I10", true);
                 activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-                // Acquire WakeLock if background build is enabled in Advanced settings
+                // Acquire WakeLock if background build setting is enabled
                 BuildSettings bs = new BuildSettings(DesignActivity.sc_id);
                 if (bs.getValue(BuildSettings.SETTING_BACKGROUND_BUILD, "true").equals("true")) {
                     android.os.PowerManager pm = (android.os.PowerManager)
@@ -1125,6 +1124,25 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
                 }
 
                 onProgress("Generating source code...", 2);
+
+                // ── Heartbeat: update notification every 2s so user knows it's not stuck ──
+                // q.b() can take 30-60s on large projects with no intermediate updates.
+                final String[] heartbeatDots = {".", "..", "..."};
+                final java.util.concurrent.atomic.AtomicBoolean generatingDone =
+                        new java.util.concurrent.atomic.AtomicBoolean(false);
+                Thread heartbeat = new Thread(() -> {
+                    int i = 0;
+                    while (!generatingDone.get()) {
+                        try { Thread.sleep(2000); } catch (InterruptedException e) { break; }
+                        if (!generatingDone.get()) {
+                            onProgress("Generating source code" + heartbeatDots[i % 3], 2);
+                            i++;
+                        }
+                    }
+                });
+                heartbeat.setDaemon(true);
+                heartbeat.start();
+
                 kC kC = jC.d(sc_id);
                 kC.b(q.resDirectoryPath + File.separator + "drawable-xhdpi");
                 kC = jC.d(sc_id);
@@ -1142,6 +1160,9 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
                 q.b(fileManager, dataManager, libraryManager, builder.getBuiltInLibraryManager());
                 q.f();
                 q.e();
+
+                generatingDone.set(true);  // stop heartbeat
+                heartbeat.interrupt();
 
                 builder.maybeExtractAapt2();
                 if (canceled) {
@@ -1276,7 +1297,6 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
             DesignActivity activity = getActivity();
             if (activity == null) return;
 
-            // Release WakeLock if held
             if (wakeLock != null && wakeLock.isHeld()) {
                 wakeLock.release();
                 wakeLock = null;
@@ -1298,7 +1318,6 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
         public void cancelBuild() {
             canceled = true;
             onProgress("Canceling build...", -1);
-            // Release WakeLock on cancel
             if (wakeLock != null && wakeLock.isHeld()) {
                 wakeLock.release();
                 wakeLock = null;

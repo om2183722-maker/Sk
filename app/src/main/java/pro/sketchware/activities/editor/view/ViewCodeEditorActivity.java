@@ -26,6 +26,7 @@ import mod.hey.studios.util.Helper;
 import pro.sketchware.R;
 import pro.sketchware.activities.appcompat.ManageAppCompatActivity;
 import pro.sketchware.activities.preview.LayoutPreviewActivity;
+import pro.sketchware.activities.preview.XmlLivePreviewActivity;
 import pro.sketchware.databinding.ViewCodeEditorBinding;
 import pro.sketchware.managers.inject.InjectRootLayoutManager;
 import pro.sketchware.tools.ViewBeanParser;
@@ -147,7 +148,8 @@ public class ViewCodeEditorActivity extends BaseAppCompatActivity {
             menu.add(Menu.NONE, 3, Menu.NONE, "Edit AppCompat");
         }
         menu.add(Menu.NONE, 4, Menu.NONE, "Reload color schemes");
-        menu.add(Menu.NONE, 5, Menu.NONE, "Layout Preview");
+        menu.add(Menu.NONE, 5, Menu.NONE, "Layout Preview (Sketchware)");
+        menu.add(Menu.NONE, 6, Menu.NONE, "⚡ Live Preview (LayoutInflater)");
         return true;
     }
 
@@ -178,6 +180,10 @@ public class ViewCodeEditorActivity extends BaseAppCompatActivity {
                 toLayoutPreview();
                 return true;
             }
+            case 6 -> {
+                toLivePreview();
+                return true;
+            }
             default -> {
                 return super.onOptionsItemSelected(item);
             }
@@ -195,6 +201,13 @@ public class ViewCodeEditorActivity extends BaseAppCompatActivity {
         var intent = new Intent(getApplicationContext(), LayoutPreviewActivity.class);
         intent.putExtras(getIntent());
         intent.putExtra("xml", editor.getText().toString());
+        startActivity(intent);
+    }
+
+    private void toLivePreview() {
+        var intent = new Intent(getApplicationContext(), XmlLivePreviewActivity.class);
+        intent.putExtra(XmlLivePreviewActivity.EXTRA_XML, editor.getText().toString());
+        intent.putExtra(XmlLivePreviewActivity.EXTRA_TITLE, getIntent().getStringExtra("title"));
         startActivity(intent);
     }
 

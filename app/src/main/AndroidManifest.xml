@@ -321,6 +321,11 @@
             android:name=".activities.preview.LayoutPreviewActivity"
             android:configChanges="orientation|screenSize" />
 
+        <activity
+            android:name=".activities.preview.XmlLivePreviewActivity"
+            android:configChanges="orientation|screenSize"
+            android:windowSoftInputMode="adjustResize" />
+
         <meta-data
             android:name="firebase_crashlytics_collection_enabled"
             android:value="true" />
