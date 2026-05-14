@@ -78,6 +78,7 @@ import a.a.a.DB;
 import a.a.a.GB;
 import a.a.a.Ox;
 import a.a.a.ProjectBuilder;
+import mod.hey.studios.build.BuildSettings;
 import a.a.a.ViewEditorFragment;
 import a.a.a.bB;
 import a.a.a.bC;
@@ -1051,8 +1052,7 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
         public volatile boolean canceled;
         private volatile boolean isBuildFinished;
         private boolean isShowingNotification = false;
-
-        /** WakeLock to keep CPU running during background build */
+        /** Keeps CPU alive during background build when enabled in Advanced settings */
         private android.os.PowerManager.WakeLock wakeLock;
 
         public BuildTask(DesignActivity activity) {
@@ -1079,10 +1079,9 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
                 activity.r.a("P1I10", true);
                 activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-                // ── WakeLock: keep CPU alive during background build ──────────
+                // Acquire WakeLock if background build is enabled in Advanced settings
                 BuildSettings bs = new BuildSettings(DesignActivity.sc_id);
-                boolean bgBuild = bs.getValue(BuildSettings.SETTING_BACKGROUND_BUILD, "true").equals("true");
-                if (bgBuild) {
+                if (bs.getValue(BuildSettings.SETTING_BACKGROUND_BUILD, "true").equals("true")) {
                     android.os.PowerManager pm = (android.os.PowerManager)
                             activity.getSystemService(Context.POWER_SERVICE);
                     if (pm != null) {
@@ -1310,9 +1309,8 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
             }
             DesignActivity activity = getActivity();
             if (activity != null) {
-                activity.runOnUiThread(() -> {
-                    activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-                });
+                activity.runOnUiThread(() ->
+                        activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON));
             }
         }
 
