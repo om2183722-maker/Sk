@@ -323,8 +323,11 @@
 
         <activity
             android:name=".activities.preview.XmlLivePreviewActivity"
-            android:configChanges="orientation|screenSize"
-            android:windowSoftInputMode="adjustResize" />
+            android:configChanges="orientation|screenSize" />
+
+        <activity
+            android:name=".activities.tools.SvgToVectorActivity"
+            android:configChanges="orientation|screenSize" />
 
         <meta-data
             android:name="firebase_crashlytics_collection_enabled"

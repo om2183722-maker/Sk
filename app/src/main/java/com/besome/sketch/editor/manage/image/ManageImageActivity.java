@@ -2,8 +2,11 @@ package com.besome.sketch.editor.manage.image;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 
@@ -23,6 +26,7 @@ import a.a.a.fu;
 import a.a.a.mB;
 import a.a.a.pu;
 import pro.sketchware.R;
+import pro.sketchware.activities.tools.SvgToVectorActivity;
 import pro.sketchware.databinding.ManageImageBinding;
 
 public class ManageImageActivity extends BaseAppCompatActivity implements ViewPager.OnPageChangeListener {
@@ -96,6 +100,17 @@ public class ManageImageActivity extends BaseAppCompatActivity implements ViewPa
         binding.viewPager.setOffscreenPageLimit(2);
         binding.viewPager.addOnPageChangeListener(this);
         binding.tabLayout.setupWithViewPager(binding.viewPager);
+
+        // SVG → Vector XML converter button in toolbar
+        binding.topAppBar.getMenu().add(Menu.NONE, 1, 0, "SVG → Vector XML")
+                .setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+        binding.topAppBar.setOnMenuItemClickListener(item -> {
+            if (item.getItemId() == 1) {
+                startActivity(new Intent(this, SvgToVectorActivity.class));
+                return true;
+            }
+            return false;
+        });
     }
 
     @Override

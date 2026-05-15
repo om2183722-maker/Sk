@@ -1,40 +1,26 @@
 package pro.sketchware.activities.preview;
 
-import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.os.Bundle;
-import android.util.TypedValue;
-import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
-import android.view.ViewGroup;
-import android.widget.FrameLayout;
-import android.widget.HorizontalScrollView;
-import android.widget.ScrollView;
-import android.widget.TextView;
-
-import androidx.annotation.Nullable;
 
 import com.besome.sketch.lib.base.BaseAppCompatActivity;
-import com.google.android.material.chip.Chip;
-import com.google.android.material.chip.ChipGroup;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.snackbar.Snackbar;
 
-import java.io.ByteArrayInputStream;
-import java.nio.charset.StandardCharsets;
+import org.xmlpull.v1.XmlPullParser;
+
+import java.io.StringReader;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import mod.hey.studios.util.Helper;
 import pro.sketchware.databinding.ActivityXmlLivePreviewBinding;
-import pro.sketchware.utility.SketchwareUtil;
+import pro.sketchware.utility.FileUtil;
 import pro.sketchware.utility.UI;
 
-/**
- * Live XML Preview — inflates the actual layout XML using Android's LayoutInflater
- * giving pixel-accurate rendering instead of Sketchware's custom ViewPane approximation.
- *
- * Handles unresolvable project-specific resource references by replacing them
- * with safe defaults before inflation.
- */
 public class XmlLivePreviewActivity extends BaseAppCompatActivity {
 
     public static final String EXTRA_XML   = "xml";
@@ -44,8 +30,14 @@ public class XmlLivePreviewActivity extends BaseAppCompatActivity {
     private String originalXml;
     private boolean isPhoneFrame = true;
 
+    private static final int MENU_REFRESH    = Menu.FIRST;
+    private static final int MENU_FRAME      = Menu.FIRST + 1;
+    private static final int MENU_SHOW_XML   = Menu.FIRST + 2;
+
+    private MenuItem menuFrame;
+
     @Override
-    protected void onCreate(@Nullable Bundle savedInstanceState) {
+    public void onCreate(Bundle savedInstanceState) {
         enableEdgeToEdgeNoContrast();
         super.onCreate(savedInstanceState);
         binding = ActivityXmlLivePreviewBinding.inflate(getLayoutInflater());
@@ -58,23 +50,16 @@ public class XmlLivePreviewActivity extends BaseAppCompatActivity {
         binding.toolbar.setTitle(title != null ? title : "Live Preview");
         binding.toolbar.setSubtitle("LayoutInflater render");
 
-        // Toolbar menu: refresh, toggle phone frame, show cleaned XML
-        binding.toolbar.getMenu().add(0, 1, 0, "↺ Refresh");
-        binding.toolbar.getMenu().add(0, 2, 1, "□ Phone frame: ON");
-        binding.toolbar.getMenu().add(0, 3, 2, "Show cleaned XML");
+        Menu menu = binding.toolbar.getMenu();
+        menu.add(Menu.NONE, MENU_REFRESH,  0, "↺ Refresh");
+        menuFrame = menu.add(Menu.NONE, MENU_FRAME, 1, "Phone frame: ON");
+        menu.add(Menu.NONE, MENU_SHOW_XML, 2, "Show cleaned XML");
 
         binding.toolbar.setOnMenuItemClickListener(item -> {
-            switch (item.getItemId()) {
-                case 1: inflatePreview(); return true;
-                case 2:
-                    isPhoneFrame = !isPhoneFrame;
-                    item.setTitle("□ Phone frame: " + (isPhoneFrame ? "ON" : "OFF"));
-                    updatePhoneFrame();
-                    return true;
-                case 3:
-                    showCleanedXml();
-                    return true;
-            }
+            int id = item.getItemId();
+            if (id == MENU_REFRESH)  { inflatePreview(); return true; }
+            if (id == MENU_FRAME)    { toggleFrame(); return true; }
+            if (id == MENU_SHOW_XML) { showCleanedXml(); return true; }
             return false;
         });
 
@@ -84,7 +69,7 @@ public class XmlLivePreviewActivity extends BaseAppCompatActivity {
         inflatePreview();
     }
 
-    // ── Preview inflation ─────────────────────────────────────────────────────
+    // ── Inflation ─────────────────────────────────────────────────────────────
 
     private void inflatePreview() {
         binding.previewContainer.removeAllViews();
@@ -95,173 +80,102 @@ public class XmlLivePreviewActivity extends BaseAppCompatActivity {
             return;
         }
 
-        // Run on background thread — inflation can be slow for complex layouts
         new Thread(() -> {
             String cleaned = sanitizeXml(originalXml);
             runOnUiThread(() -> {
                 try {
-                    View inflated = LayoutInflater.from(this)
-                            .inflate(
-                                    new android.util.Xml.newPullParser().getClass()
-                                            .equals(Object.class) ? null
-                                            : getXmlParser(cleaned),
-                                    binding.previewContainer,
-                                    false);
+                    // Write to temp file and inflate via XmlPullParser
+                    java.io.File tmp = new java.io.File(getCacheDir(), "lp_tmp.xml");
+                    FileUtil.writeFile(tmp.getAbsolutePath(), cleaned);
+
+                    XmlPullParser parser = android.util.Xml.newPullParser();
+                    parser.setInput(new StringReader(cleaned));
+
+                    android.view.ContextThemeWrapper ctx =
+                            new android.view.ContextThemeWrapper(this,
+                                    com.google.android.material.R.style.Theme_Material3_DayNight);
+
+                    View inflated = android.view.LayoutInflater.from(ctx)
+                            .inflate(parser, binding.previewContainer, false);
+
+                    binding.previewContainer.removeAllViews();
                     binding.previewContainer.addView(inflated,
-                            new FrameLayout.LayoutParams(
-                                    FrameLayout.LayoutParams.MATCH_PARENT,
-                                    FrameLayout.LayoutParams.WRAP_CONTENT));
+                            new android.widget.FrameLayout.LayoutParams(
+                                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT));
                     updatePhoneFrame();
+                    showSnack("Preview rendered ✓");
                 } catch (Exception e) {
-                    // Fallback: try inflating via stream directly
-                    try {
-                        byte[] bytes = cleaned.getBytes(StandardCharsets.UTF_8);
-                        android.content.res.XmlResourceParser parser =
-                                new pro.sketchware.utility.XmlStringParser(cleaned);
-                        showError("Parser not available — see cleaned XML via menu.\n\n"
-                                + e.getMessage());
-                    } catch (Exception e2) {
-                        showError(e.getMessage());
-                    }
+                    showError("Inflation failed:\n" + e.getMessage()
+                            + "\n\nTip: tap ⋮ → 'Show cleaned XML' to debug.");
                 }
             });
         }).start();
     }
 
-    /**
-     * Real inflation using Android's LayoutInflater with an XML string.
-     * We write to a temp file and inflate from there.
-     */
-    private void inflateFromString(String xml) {
-        try {
-            // Write cleaned XML to temp file in cache dir
-            java.io.File tmpFile = new java.io.File(getCacheDir(), "live_preview_tmp.xml");
-            pro.sketchware.utility.FileUtil.writeFile(tmpFile.getAbsolutePath(), xml);
-
-            // Use XmlPullParser to inflate
-            android.util.XmlPullParser parser = android.util.Xml.newPullParser();
-            parser.setInput(new java.io.FileInputStream(tmpFile), "UTF-8");
-
-            View inflated = LayoutInflater.from(
-                    new android.view.ContextThemeWrapper(this,
-                            com.google.android.material.R.style.Theme_Material3_DayNight))
-                    .inflate(parser, null, false);
-
-            binding.previewContainer.removeAllViews();
-            binding.previewContainer.addView(inflated,
-                    new FrameLayout.LayoutParams(
-                            FrameLayout.LayoutParams.MATCH_PARENT,
-                            FrameLayout.LayoutParams.WRAP_CONTENT));
-            updatePhoneFrame();
-
-        } catch (Exception e) {
-            showError("Inflation failed: " + e.getMessage()
-                    + "\n\nTip: Use 'Show cleaned XML' to see what was attempted.");
-        }
-    }
-
-    private android.util.XmlPullParser getXmlParser(String xml) throws Exception {
-        android.util.XmlPullParser parser = android.util.Xml.newPullParser();
-        parser.setInput(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)), "UTF-8");
-        return parser;
-    }
-
-    /** Main entry — sanitize then inflate */
-    private void inflatePreview2() {
-        binding.previewContainer.removeAllViews();
-        binding.errorCard.setVisibility(View.GONE);
-        if (originalXml == null || originalXml.isEmpty()) { showError("No XML."); return; }
-        String cleaned = sanitizeXml(originalXml);
-        new Thread(() -> runOnUiThread(() -> inflateFromString(cleaned))).start();
-    }
-
     // ── XML sanitizer ─────────────────────────────────────────────────────────
 
     /**
-     * Replaces project-specific resource references with safe Android defaults
-     * so that LayoutInflater can resolve everything.
-     *
-     * Rules:
-     *  @+id/xxx          → removed (let system auto-assign)
-     *  @id/xxx           → removed
-     *  @color/xxx        → #808080
-     *  @drawable/xxx     → @android:color/darker_gray  (gray placeholder)
-     *  @string/xxx       → "xxx"  (key name as text)
-     *  @dimen/xxx        → 8dp
-     *  @style/xxx        → removed attribute
-     *  @mipmap/xxx       → @android:drawable/sym_def_app_icon
-     *  @layout/xxx       → removed (nested layouts unsupported)
-     *  @anim/xxx         → removed
-     *  @font/xxx         → removed (use default font)
-     *  @array/xxx        → removed
-     *  @bool/xxx         → true
-     *  @integer/xxx      → 0
-     *  app:xxx="..."     → kept (Material attrs work with Material theme)
-     *  tools:xxx="..."   → removed
+     * Replaces project-specific resource refs with safe Android defaults
+     * so LayoutInflater can resolve everything.
      */
     public static String sanitizeXml(String xml) {
         if (xml == null) return "";
+        String s = xml;
 
-        String result = xml;
+        // Remove tools: namespace and all tools: attributes
+        s = s.replaceAll("xmlns:tools=\"[^\"]*\"", "");
+        s = s.replaceAll("tools:[a-zA-Z_0-9]+=\"[^\"]*\"", "");
 
-        // Remove tools: namespace and attributes
-        result = result.replaceAll("xmlns:tools=\"[^\"]*\"", "");
-        result = result.replaceAll("tools:[a-zA-Z_]+=\"[^\"]*\"", "");
-
-        // @+id/ and @id/ → remove the whole android:id attribute
-        result = result.replaceAll("android:id=\"@\\+id/[^\"]*\"", "");
-        result = result.replaceAll("android:id=\"@id/[^\"]*\"", "");
+        // @+id/ and @id/ → remove the whole id attribute
+        s = s.replaceAll("android:id=\"@\\+?id/[^\"]*\"", "");
 
         // @color/ → gray
-        result = result.replaceAll("@color/[a-zA-Z0-9_]+", "#808080");
-        result = result.replaceAll("@android:color/[a-zA-Z0-9_]+", "#808080");
+        s = s.replaceAll("@(?:android:)?color/[a-zA-Z0-9_]+", "#9E9E9E");
 
-        // @drawable/ and @mipmap/ → placeholder
-        result = result.replaceAll("@(drawable|mipmap)/[a-zA-Z0-9_]+",
+        // @drawable/ and @mipmap/ → placeholder drawable
+        s = s.replaceAll("@(?:drawable|mipmap)/[a-zA-Z0-9_]+",
+                "@android:drawable/ic_menu_gallery");
+        s = s.replaceAll("@android:drawable/[a-zA-Z0-9_]+",
                 "@android:drawable/ic_menu_gallery");
 
-        // @string/ → show key name as literal
-        result = replaceStrings(result);
+        // @string/ → key name as literal text
+        s = replaceStringRefs(s);
 
         // @dimen/ → 8dp
-        result = result.replaceAll("@dimen/[a-zA-Z0-9_]+", "8dp");
-        result = result.replaceAll("@android:dimen/[a-zA-Z0-9_]+", "8dp");
+        s = s.replaceAll("@(?:android:)?dimen/[a-zA-Z0-9_]+", "8dp");
 
-        // @style/ → remove whole attribute
-        result = result.replaceAll("[a-zA-Z]+:style=\"@style/[^\"]*\"", "");
-        result = result.replaceAll("style=\"@style/[^\"]*\"", "");
+        // @style/ → remove the whole attribute
+        s = s.replaceAll("(?:android|app):[a-zA-Z_0-9]+=\"@style/[^\"]*\"", "");
+        s = s.replaceAll("style=\"@style/[^\"]*\"", "");
 
-        // @layout/ → remove whole attribute (include/merge not supported live)
-        result = result.replaceAll("android:layout=\"@layout/[^\"]*\"", "");
-        result = result.replaceAll("<include[^/]*/?>", "<!-- include removed -->");
-        result = result.replaceAll("<merge[^>]*>", "<FrameLayout>");
-        result = result.replaceAll("</merge>", "</FrameLayout>");
+        // @bool/ → true
+        s = s.replaceAll("@(?:android:)?bool/[a-zA-Z0-9_]+", "true");
 
-        // @anim/, @font/, @array/, @xml/ → remove
-        result = result.replaceAll("[a-zA-Z]+:[a-zA-Z_]+=\"@(anim|font|array|xml|bool|integer|raw)/[^\"]*\"", "");
+        // @integer/ → 0
+        s = s.replaceAll("@(?:android:)?integer/[a-zA-Z0-9_]+", "0");
 
-        // @bool/xxx → true/false
-        result = result.replaceAll("@bool/[a-zA-Z0-9_]+", "true");
+        // ?attr/ → remove the whole attribute
+        s = s.replaceAll("[a-zA-Z]+:[a-zA-Z_0-9]+=\"\\?[^\"]*\"", "");
 
-        // @integer/xxx → 0
-        result = result.replaceAll("@integer/[a-zA-Z0-9_]+", "0");
+        // @anim/, @font/, @array/, @xml/, @raw/ → remove attribute
+        s = s.replaceAll("[a-zA-Z]+:[a-zA-Z_0-9]+=\"@(anim|font|array|xml|raw)/[^\"]*\"", "");
 
-        // ?attr/xxx → remove containing attribute (attr refs need theme)
-        result = result.replaceAll("[a-zA-Z]+:[a-zA-Z_]+=\"\\?[^\"]*\"", "");
-        result = result.replaceAll("[a-zA-Z]+:[a-zA-Z_]+='\\?[^']*'", "");
+        // <include> → remove (can't resolve)
+        s = s.replaceAll("<include[^>]*/?>", "<!-- include removed -->");
 
-        // Remove layout_constraintXxx attributes (ConstraintLayout attrs — keep basic ones)
-        result = result.replaceAll("app:layout_constraint[A-Za-z_]+=\"[^\"]*\"", "");
-        result = result.replaceAll("app:layout_editor[A-Za-z_]+=\"[^\"]*\"", "");
+        // <merge> → <FrameLayout>
+        s = s.replaceAll("<merge([^>]*)>", "<FrameLayout$1>");
+        s = s.replaceAll("</merge>", "</FrameLayout>");
 
-        // Replace unknown custom view classes with FrameLayout as fallback tag comment
-        // (We can't do this with regex alone — LayoutInflater handles unknown views gracefully)
+        // ConstraintLayout constraint attributes → remove
+        s = s.replaceAll("app:layout_constraint[A-Za-z_0-9]+=\"[^\"]*\"", "");
+        s = s.replaceAll("app:layout_editor[A-Za-z_0-9]+=\"[^\"]*\"", "");
 
-        return result;
+        return s;
     }
 
-    private static String replaceStrings(String xml) {
-        // Replace @string/key_name with the key_name as a literal string
+    private static String replaceStringRefs(String xml) {
         StringBuffer sb = new StringBuffer();
         Matcher m = Pattern.compile("@string/([a-zA-Z0-9_]+)").matcher(xml);
         while (m.find()) {
@@ -273,31 +187,33 @@ public class XmlLivePreviewActivity extends BaseAppCompatActivity {
 
     // ── Phone frame ───────────────────────────────────────────────────────────
 
-    private void updatePhoneFrame() {
-        if (isPhoneFrame) {
-            binding.phoneFrame.setVisibility(View.VISIBLE);
-            binding.previewContainer.setBackgroundColor(Color.WHITE);
-        } else {
-            binding.phoneFrame.setVisibility(View.GONE);
-            binding.previewContainer.setBackgroundColor(Color.TRANSPARENT);
-        }
+    private void toggleFrame() {
+        isPhoneFrame = !isPhoneFrame;
+        menuFrame.setTitle("Phone frame: " + (isPhoneFrame ? "ON" : "OFF"));
+        updatePhoneFrame();
     }
 
-    // ── Error display ─────────────────────────────────────────────────────────
+    private void updatePhoneFrame() {
+        binding.phoneFrame.setVisibility(isPhoneFrame ? View.VISIBLE : View.GONE);
+        binding.previewContainer.setBackgroundColor(Color.WHITE);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private void showError(String msg) {
         binding.errorCard.setVisibility(View.VISIBLE);
         binding.tvError.setText(msg);
     }
 
-    // ── Cleaned XML viewer ────────────────────────────────────────────────────
-
     private void showCleanedXml() {
-        String cleaned = sanitizeXml(originalXml);
-        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                .setTitle("Cleaned XML (what LayoutInflater sees)")
-                .setMessage(cleaned)
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("Cleaned XML")
+                .setMessage(sanitizeXml(originalXml))
                 .setPositiveButton("Close", null)
                 .show();
+    }
+
+    private void showSnack(String msg) {
+        Snackbar.make(binding.getRoot(), msg, Snackbar.LENGTH_SHORT).show();
     }
 }
