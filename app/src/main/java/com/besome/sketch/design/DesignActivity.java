@@ -78,7 +78,6 @@ import a.a.a.DB;
 import a.a.a.GB;
 import a.a.a.Ox;
 import a.a.a.ProjectBuilder;
-import mod.hey.studios.build.BuildSettings;
 import a.a.a.ViewEditorFragment;
 import a.a.a.bB;
 import a.a.a.bC;
@@ -99,6 +98,7 @@ import mod.agus.jcoderz.editor.manage.permission.ManagePermissionActivity;
 import mod.agus.jcoderz.editor.manage.resource.ManageResourceActivity;
 import mod.hey.studios.activity.managers.assets.ManageAssetsActivity;
 import mod.hey.studios.activity.managers.java.ManageJavaActivity;
+import pro.sketchware.activities.tools.ProjectFileManagerActivity;
 import mod.hey.studios.compiler.kotlin.KotlinCompilerBridge;
 import mod.hey.studios.project.custom_blocks.CustomBlocksDialog;
 import mod.hey.studios.project.proguard.ManageProguardActivity;
@@ -517,6 +517,12 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
         });
         bottomMenu.add(Menu.NONE, 7, Menu.NONE, "Direct XML editor").setOnMenuItemClickListener(item -> {
             toViewCodeEditor();
+            return true;
+        });
+        bottomMenu.add(Menu.NONE, 8, Menu.NONE, "📁  Project File Manager").setOnMenuItemClickListener(item -> {
+            Intent intent = new Intent(this, ProjectFileManagerActivity.class);
+            intent.putExtra(ProjectFileManagerActivity.EXTRA_SC_ID, sc_id);
+            startActivity(intent);
             return true;
         });
         bottomPopupMenu.setOnDismissListener(menu -> btnOptions.setChecked(false));
@@ -1052,7 +1058,6 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
         public volatile boolean canceled;
         private volatile boolean isBuildFinished;
         private boolean isShowingNotification = false;
-        private android.os.PowerManager.WakeLock wakeLock;
 
         public BuildTask(DesignActivity activity) {
             super(activity);
@@ -1077,19 +1082,6 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
                 updateRunButton(true);
                 activity.r.a("P1I10", true);
                 activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-
-                // Acquire WakeLock if background build setting is enabled
-                BuildSettings bs = new BuildSettings(DesignActivity.sc_id);
-                if (bs.getValue(BuildSettings.SETTING_BACKGROUND_BUILD, "true").equals("true")) {
-                    android.os.PowerManager pm = (android.os.PowerManager)
-                            activity.getSystemService(Context.POWER_SERVICE);
-                    if (pm != null) {
-                        wakeLock = pm.newWakeLock(
-                                android.os.PowerManager.PARTIAL_WAKE_LOCK,
-                                "SketchwarePro:BuildWakeLock");
-                        wakeLock.acquire(30 * 60 * 1000L); // max 30 min
-                    }
-                }
 
                 maybeShowNotification();
             });
@@ -1124,25 +1116,6 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
                 }
 
                 onProgress("Generating source code...", 2);
-
-                // ── Heartbeat: update notification every 2s so user knows it's not stuck ──
-                // q.b() can take 30-60s on large projects with no intermediate updates.
-                final String[] heartbeatDots = {".", "..", "..."};
-                final java.util.concurrent.atomic.AtomicBoolean generatingDone =
-                        new java.util.concurrent.atomic.AtomicBoolean(false);
-                Thread heartbeat = new Thread(() -> {
-                    int i = 0;
-                    while (!generatingDone.get()) {
-                        try { Thread.sleep(2000); } catch (InterruptedException e) { break; }
-                        if (!generatingDone.get()) {
-                            onProgress("Generating source code" + heartbeatDots[i % 3], 2);
-                            i++;
-                        }
-                    }
-                });
-                heartbeat.setDaemon(true);
-                heartbeat.start();
-
                 kC kC = jC.d(sc_id);
                 kC.b(q.resDirectoryPath + File.separator + "drawable-xhdpi");
                 kC = jC.d(sc_id);
@@ -1160,9 +1133,6 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
                 q.b(fileManager, dataManager, libraryManager, builder.getBuiltInLibraryManager());
                 q.f();
                 q.e();
-
-                generatingDone.set(true);  // stop heartbeat
-                heartbeat.interrupt();
 
                 builder.maybeExtractAapt2();
                 if (canceled) {
@@ -1297,11 +1267,6 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
             DesignActivity activity = getActivity();
             if (activity == null) return;
 
-            if (wakeLock != null && wakeLock.isHeld()) {
-                wakeLock.release();
-                wakeLock = null;
-            }
-
             activity.runOnUiThread(() -> {
                 if (!activity.isDestroyed()) {
                     if (isShowingNotification) {
@@ -1318,18 +1283,15 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
         public void cancelBuild() {
             canceled = true;
             onProgress("Canceling build...", -1);
-            if (wakeLock != null && wakeLock.isHeld()) {
-                wakeLock.release();
-                wakeLock = null;
-            }
             if (isShowingNotification) {
                 notificationManager.cancel(notificationId);
                 isShowingNotification = false;
             }
             DesignActivity activity = getActivity();
             if (activity != null) {
-                activity.runOnUiThread(() ->
-                        activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON));
+                activity.runOnUiThread(() -> {
+                    activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                });
             }
         }
 
