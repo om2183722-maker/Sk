@@ -95,6 +95,56 @@ public class ManageJavaActivity extends BaseAppCompatActivity {
             }
             """;
 
+    private static final String COMPOSE_ACTIVITY_TEMPLATE = """
+            package %s
+
+            import android.os.Bundle
+            import androidx.activity.ComponentActivity
+            import androidx.activity.compose.setContent
+            import androidx.compose.foundation.layout.Box
+            import androidx.compose.foundation.layout.fillMaxSize
+            import androidx.compose.foundation.layout.padding
+            import androidx.compose.material3.MaterialTheme
+            import androidx.compose.material3.Scaffold
+            import androidx.compose.material3.Text
+            import androidx.compose.runtime.Composable
+            import androidx.compose.ui.Alignment
+            import androidx.compose.ui.Modifier
+            import androidx.compose.ui.tooling.preview.Preview
+
+            class %s : ComponentActivity() {
+
+                override fun onCreate(savedInstanceState: Bundle?) {
+                    super.onCreate(savedInstanceState)
+                    setContent {
+                        MaterialTheme {
+                            Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                                MainScreen(modifier = Modifier.padding(innerPadding))
+                            }
+                        }
+                    }
+                }
+            }
+
+            @Composable
+            fun MainScreen(modifier: Modifier = Modifier) {
+                Box(
+                    modifier = modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = "Hello, Jetpack Compose!")
+                }
+            }
+
+            @Preview(showBackground = true, showSystemUi = true)
+            @Composable
+            fun MainScreenPreview() {
+                MaterialTheme {
+                    MainScreen()
+                }
+            }
+            """;
+
     private final ArrayList<String> currentTree = new ArrayList<>();
     ManageFileBinding binding;
     private String current_path;
@@ -214,6 +264,9 @@ public class ManageJavaActivity extends BaseAppCompatActivity {
                 } else if (checkedChipId == R.id.chip_kotlin_activity) {
                     newFileContent = String.format(KT_ACTIVITY_TEMPLATE, packageName, name);
                     extension = ".kt";
+                } else if (checkedChipId == R.id.chip_compose_activity) {
+                    newFileContent = String.format(COMPOSE_ACTIVITY_TEMPLATE, packageName, name);
+                    extension = ".kt";
                 } else if (checkedChipId == R.id.chip_folder) {
                     FileUtil.makeDir(new File(current_path, name).getAbsolutePath());
                     refresh();
@@ -241,6 +294,7 @@ public class ManageJavaActivity extends BaseAppCompatActivity {
             dialogBinding.chipJavaActivity.setVisibility(View.VISIBLE);
             dialogBinding.chipKotlinClass.setVisibility(View.VISIBLE);
             dialogBinding.chipKotlinActivity.setVisibility(View.VISIBLE);
+            dialogBinding.chipComposeActivity.setVisibility(View.VISIBLE);
         });
 
         dialog.show();

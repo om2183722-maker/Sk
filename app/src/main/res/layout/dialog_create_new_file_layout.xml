@@ -100,5 +100,13 @@
             android:visibility="gone"
             tools:visibility="visible" />
 
+        <com.google.android.material.chip.Chip
+            android:id="@+id/chip_compose_activity"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="⚡ Compose Activity"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
     </com.google.android.material.chip.ChipGroup>
 </LinearLayout>

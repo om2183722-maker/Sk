@@ -23,20 +23,28 @@ public class BuildSettings extends ProjectSettings implements Serializable {
     public static final String SETTING_JAVA_VERSION_10 = "10";
     public static final String SETTING_JAVA_VERSION_11 = "11";
 
-    // ── Signing settings ──────────────────────────────────────────────────────
+    // ── Signing ───────────────────────────────────────────────────────────────
     public static final String SETTING_SIGNING_ENABLED       = "signing_enabled";
     public static final String SETTING_SIGNING_KEYSTORE_PATH = "signing_keystore_path";
     public static final String SETTING_SIGNING_KEYSTORE_PASS = "signing_keystore_pass";
     public static final String SETTING_SIGNING_KEY_ALIAS     = "signing_key_alias";
     public static final String SETTING_SIGNING_KEY_PASS      = "signing_key_pass";
 
-    // ── Advanced build settings ───────────────────────────────────────────────
-    /** Keep CPU alive during background build via WakeLock. Default: true */
+    // ── Advanced build ────────────────────────────────────────────────────────
     public static final String SETTING_BACKGROUND_BUILD    = "background_build";
-    /** Show the compiling file name in the build notification. Default: true */
     public static final String SETTING_NOTIF_SHOW_FILE     = "notif_show_file";
-    /** Skip full compile and always use batch mode. Default: false */
     public static final String SETTING_FORCE_BATCH_COMPILE = "force_batch_compile";
+
+    // ── Jetpack Compose ───────────────────────────────────────────────────────
+    /** Enable Jetpack Compose — adds Compose deps + buildFeatures to build.gradle */
+    public static final String SETTING_JETPACK_COMPOSE         = "jetpack_compose";
+    /** Compose compiler extension version (must match Kotlin version) */
+    public static final String SETTING_COMPOSE_COMPILER_VER    = "compose_compiler_ver";
+    /** Default compose compiler extension version for Kotlin 1.9.x */
+    public static final String DEFAULT_COMPOSE_COMPILER_VER    = "1.5.14";
+    /** Compose BOM version */
+    public static final String SETTING_COMPOSE_BOM_VER         = "compose_bom_ver";
+    public static final String DEFAULT_COMPOSE_BOM_VER         = "2024.06.00";
 
     public BuildSettings(String sc_id) {
         super(sc_id);

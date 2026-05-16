@@ -488,6 +488,102 @@
                     android:minHeight="0dp" />
             </LinearLayout>
 
+            <!-- Section: Jetpack Compose -->
+            <com.google.android.material.textview.MaterialTextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="24dp"
+                android:layout_marginTop="20dp"
+                android:layout_marginBottom="4dp"
+                android:text="Jetpack Compose"
+                android:textAppearance="?attr/textAppearanceLabelLarge"
+                android:textColor="?attr/colorPrimary" />
+
+            <LinearLayout
+                android:id="@+id/ll_jetpack_compose"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:orientation="horizontal"
+                android:paddingVertical="12dp"
+                android:paddingStart="24dp"
+                android:paddingEnd="16dp">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Enable Jetpack Compose"
+                        android:textAppearance="?attr/textAppearanceBodyMedium" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Adds Compose deps + buildFeatures to build.gradle. Requires Kotlin."
+                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:alpha="0.6" />
+                </LinearLayout>
+                <CheckBox
+                    android:id="@+id/cb_jetpack_compose"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp" />
+            </LinearLayout>
+
+            <!-- Compose version fields (shown when Compose enabled) -->
+            <LinearLayout
+                android:id="@+id/ll_compose_versions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:alpha="0.4">
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/til_compose_compiler"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="24dp"
+                    android:layout_marginTop="8dp"
+                    android:hint="Compose compiler extension version (e.g. 1.5.14)">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/et_compose_compiler"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="text" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/til_compose_bom"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="24dp"
+                    android:layout_marginTop="8dp"
+                    android:hint="Compose BOM version (e.g. 2024.06.00)">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/et_compose_bom"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="text" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="24dp"
+                    android:layout_marginTop="6dp"
+                    android:alpha="0.6"
+                    android:text="Kotlin 1.9.x → compiler ext 1.5.14  |  Kotlin 2.0.x → use compose plugin instead"
+                    android:textAppearance="?attr/textAppearanceBodySmall" />
+
+            </LinearLayout>
+
         </LinearLayout>
     </ScrollView>
 

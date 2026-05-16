@@ -77,7 +77,20 @@ public class Lx {
                 .append("}\r\n")
                 .append("}\r\n");
 
-        if (isViewBindingEnabled) {
+        // ── buildFeatures: viewBinding + optional Compose ────────────────────
+        BuildSettings bs = new BuildSettings(metadata.sc_id);
+        boolean composeEnabled = bs.getValue(BuildSettings.SETTING_JETPACK_COMPOSE, "false").equals("true");
+
+        if (composeEnabled) {
+            // Compose: merge viewBinding + compose into one block
+            content.append("buildFeatures {\r\n");
+            if (isViewBindingEnabled) content.append("    viewBinding true\r\n");
+            content.append("    compose true\r\n}\r\n");
+            content.append("composeOptions {\r\n    kotlinCompilerExtensionVersion \'")
+                    .append(bs.getValue(BuildSettings.SETTING_COMPOSE_COMPILER_VER,
+                            BuildSettings.DEFAULT_COMPOSE_COMPILER_VER))
+                    .append("\'\r\n}\r\n");
+        } else if (isViewBindingEnabled) {
             content.append("buildFeatures {\r\n viewBinding true\r\n}\r\n");
         }
 
@@ -85,6 +98,21 @@ public class Lx {
                 .append("\r\n")
                 .append("dependencies {\r\n")
                 .append("implementation fileTree(dir: 'libs', include: ['*.jar'])\r\n");
+
+        // ── Jetpack Compose dependencies ──────────────────────────────────────
+        if (composeEnabled) {
+            String composeBomVer = bs.getValue(BuildSettings.SETTING_COMPOSE_BOM_VER,
+                    BuildSettings.DEFAULT_COMPOSE_BOM_VER);
+            content.append("implementation 'androidx.activity:activity-compose:1.9.0'\\r\\n");
+            content.append("implementation platform('androidx.compose:compose-bom:" + composeBomVer + "')\\r\\n");
+            content.append("implementation 'androidx.compose.ui:ui'\\r\\n");
+            content.append("implementation 'androidx.compose.ui:ui-graphics'\\r\\n");
+            content.append("implementation 'androidx.compose.ui:ui-tooling-preview'\\r\\n");
+            content.append("implementation 'androidx.compose.material3:material3'\\r\\n");
+            content.append("implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.3'\\r\\n");
+            content.append("debugImplementation 'androidx.compose.ui:ui-tooling'\\r\\n");
+            content.append("debugImplementation 'androidx.compose.ui:ui-test-manifest'\\r\\n");
+        }
 
         List<BuiltInLibraries.BuiltInLibrary> excludedLibraries = ExcludeBuiltInLibrariesActivity.getExcludedLibraries(metadata.sc_id);
         if (isLibraryNotExcluded(BuiltInLibraries.ANDROIDX_APPCOMPAT, excludedLibraries) && metadata.g) {
