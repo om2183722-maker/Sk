@@ -24,13 +24,19 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Parses an Android layout XML string and builds a real View hierarchy.
- * Works on ALL Android API levels because it does NOT use LayoutInflater
- * (which requires a compiled XmlBlock parser, not a plain XmlPullParser).
+ * Builds a real Android View hierarchy directly from an XML layout string.
+ *
+ * Parser invariant:
+ *   - On entry to parseView(), parser is AT the element's START_TAG.
+ *   - On exit from parseView(), parser is AT the element's END_TAG
+ *     (or the self-closing tag position).
+ *
+ * This invariant allows clean recursion without losing parser position.
  */
 public class ManualLayoutInflater {
 
-    private static final String NS_ANDROID = "http://schemas.android.com/apk/res/android";
+    private static final String NS = "http://schemas.android.com/apk/res/android";
+
     private final Context context;
     public final List<String> warnings = new ArrayList<>();
 
@@ -38,88 +44,123 @@ public class ManualLayoutInflater {
         this.context = context;
     }
 
-    // ── Public entry point ────────────────────────────────────────────────────
+    // ── Entry point ───────────────────────────────────────────────────────────
 
     public View inflate(String xml) throws Exception {
+        if (xml == null || xml.trim().isEmpty()) throw new Exception("Empty XML");
+
         XmlPullParserFactory factory = XmlPullParserFactory.newInstance();
         factory.setNamespaceAware(true);
         XmlPullParser p = factory.newPullParser();
         p.setInput(new StringReader(xml));
 
+        // Advance to first START_TAG
         int event = p.getEventType();
-        while (event != XmlPullParser.START_TAG && event != XmlPullParser.END_DOCUMENT) {
+        while (event != XmlPullParser.START_TAG) {
+            if (event == XmlPullParser.END_DOCUMENT)
+                throw new Exception("No root element found");
             event = p.next();
         }
-        if (event == XmlPullParser.END_DOCUMENT) throw new Exception("Empty XML");
+
         return parseView(p, null);
     }
 
-    // ── Core recursive parser ─────────────────────────────────────────────────
+    // ── Recursive view parser ─────────────────────────────────────────────────
 
+    /**
+     * Parser is AT START_TAG on entry.
+     * Parser is AT END_TAG on exit.
+     */
     private View parseView(XmlPullParser p, ViewGroup parent) throws Exception {
         String tag = p.getName();
+        if (tag == null) tag = "FrameLayout"; // safety
+
+        boolean isSelfClosing = p.isEmptyElementTag();
+
         View view = createView(tag);
         if (view == null) {
-            warnings.add("Unknown view <" + tag + "> — replaced with FrameLayout");
+            warnings.add("Unknown <" + tag + "> replaced with FrameLayout");
             view = new FrameLayout(context);
         }
 
         applyAttributes(p, view, parent);
 
+        if (isSelfClosing) {
+            // Self-closing tag: parser stays at this position (treated as END_TAG)
+            return view;
+        }
+
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
-            int depth = 1;
+            // Move into children
             int event = p.next();
-            while (event != XmlPullParser.END_DOCUMENT && depth > 0) {
+            while (event != XmlPullParser.END_DOCUMENT) {
+                if (event == XmlPullParser.END_TAG) {
+                    // This is OUR closing tag — stop
+                    break;
+                }
                 if (event == XmlPullParser.START_TAG) {
+                    // Child element — recurse (child will consume its own END_TAG)
                     View child = parseView(p, group);
-                    if (child != null) group.addView(child);
-                    depth = 1; // parseView consumed END_TAG
-                } else if (event == XmlPullParser.END_TAG) {
-                    depth--;
+                    group.addView(child);
+                    // After parseView returns, parser is at child's END_TAG
+                    // Advance past it to get next sibling or our END_TAG
+                    event = p.next();
                 } else {
                     event = p.next();
                 }
             }
+            // Parser is now AT our END_TAG
         } else {
-            // Consume until matching END_TAG
-            skipToEndTag(p, tag);
+            // Leaf node: consume everything until matching END_TAG
+            advanceToEndTag(p, tag);
+            // Parser is now AT our END_TAG
         }
 
         return view;
     }
 
-    private void skipToEndTag(XmlPullParser p, String tag) throws Exception {
+    /** Advance parser until we find the END_TAG matching the given element name. */
+    private void advanceToEndTag(XmlPullParser p, String elementTag) throws Exception {
         int depth = 1;
         int event = p.next();
         while (event != XmlPullParser.END_DOCUMENT && depth > 0) {
             if (event == XmlPullParser.START_TAG) depth++;
-            else if (event == XmlPullParser.END_TAG) depth--;
+            else if (event == XmlPullParser.END_TAG) {
+                depth--;
+                if (depth == 0) break; // this is our END_TAG
+            }
             if (depth > 0) event = p.next();
         }
     }
 
-    // ── View instantiation ────────────────────────────────────────────────────
+    // ── View factory ──────────────────────────────────────────────────────────
 
-    private View createView(String tag) {
-        // Remove package prefix if short (e.g. "View", "TextView")
-        switch (tag.contains(".") ? tag.substring(tag.lastIndexOf('.') + 1) : tag) {
+    private View createView(String fullTag) {
+        // Strip package prefix for matching
+        String tag = fullTag.contains(".")
+                ? fullTag.substring(fullTag.lastIndexOf('.') + 1)
+                : fullTag;
+
+        switch (tag) {
             // Layouts
-            case "LinearLayout":          return new LinearLayout(context);
-            case "RelativeLayout":        return new RelativeLayout(context);
-            case "FrameLayout":           return new FrameLayout(context);
-            case "ScrollView":            return new ScrollView(context);
-            case "HorizontalScrollView":  return new HorizontalScrollView(context);
-            case "GridLayout":            return new GridLayout(context);
-            case "ConstraintLayout":      return new FrameLayout(context); // approx
-            case "CoordinatorLayout":     return new FrameLayout(context);
+            case "LinearLayout":         return new LinearLayout(context);
+            case "RelativeLayout":       return new RelativeLayout(context);
+            case "FrameLayout":          return new FrameLayout(context);
+            case "ScrollView":           return new ScrollView(context);
+            case "HorizontalScrollView": return new HorizontalScrollView(context);
+            case "GridLayout":           return new GridLayout(context);
+            case "ConstraintLayout":     return new FrameLayout(context); // approximated
+            case "CoordinatorLayout":    return new FrameLayout(context);
+            case "AppBarLayout":         { LinearLayout ll = new LinearLayout(context); ll.setBackgroundColor(0xFF6200EE); return ll; }
 
-            // Text views
+            // Text
             case "TextView":             return new TextView(context);
             case "MaterialTextView":     return new MaterialTextView(context);
             case "EditText":             return new EditText(context);
             case "TextInputEditText":    return new TextInputEditText(context);
             case "AutoCompleteTextView": return new AutoCompleteTextView(context);
+            case "MultiAutoCompleteTextView": return new MultiAutoCompleteTextView(context);
 
             // Buttons
             case "Button":               return new Button(context);
@@ -127,210 +168,286 @@ public class ManualLayoutInflater {
             case "ImageButton":          return new ImageButton(context);
             case "CheckBox":             return new CheckBox(context);
             case "RadioButton":          return new RadioButton(context);
+            case "RadioGroup":           return new RadioGroup(context);
             case "Switch":               return new Switch(context);
             case "ToggleButton":         return new ToggleButton(context);
 
-            // Images
+            // Image
             case "ImageView":            return new ImageView(context);
 
-            // Progress / Seek
+            // Progress
             case "ProgressBar":          return new ProgressBar(context);
             case "SeekBar":              return new SeekBar(context);
+            case "RatingBar":            return new RatingBar(context);
 
-            // Lists
+            // Lists / Scroll
             case "ListView":             return new ListView(context);
-            case "RecyclerView":         { FrameLayout fl = new FrameLayout(context); fl.setBackgroundColor(0x33000000); return fl; }
+            case "GridView":             return new GridView(context);
+            case "NestedScrollView":     return new ScrollView(context);
+            case "RecyclerView": {
+                FrameLayout fl = new FrameLayout(context);
+                fl.setBackgroundColor(0x22000000);
+                TextView tv = new TextView(context);
+                tv.setText("[RecyclerView]");
+                tv.setGravity(Gravity.CENTER);
+                tv.setPadding(16, 32, 16, 32);
+                fl.addView(tv);
+                return fl;
+            }
 
             // Material
             case "CardView":
             case "MaterialCardView":     return new MaterialCardView(context);
             case "TextInputLayout":      return new TextInputLayout(context);
-            case "RadioGroup":           return new RadioGroup(context);
+            case "Toolbar":
+            case "MaterialToolbar": {
+                LinearLayout ll = new LinearLayout(context);
+                ll.setBackgroundColor(0xFF6200EE);
+                ll.setMinimumHeight(dp(56));
+                return ll;
+            }
+            case "TabLayout": {
+                FrameLayout fl = new FrameLayout(context);
+                fl.setBackgroundColor(0xFF6200EE);
+                fl.setMinimumHeight(dp(48));
+                return fl;
+            }
+            case "FloatingActionButton": {
+                Button b = new Button(context);
+                b.setText("FAB");
+                return b;
+            }
 
-            // Containers
+            // Misc
             case "View":                 return new View(context);
             case "Space":                return new Space(context);
-            case "TabLayout":            { FrameLayout fl = new FrameLayout(context); fl.setBackgroundColor(0xFF6200EE); return fl; }
+            case "include":              return new FrameLayout(context); // placeholder
+            case "ViewStub":             return new View(context);
+            case "WebView": {
+                TextView tv = new TextView(context);
+                tv.setText("[WebView]");
+                tv.setGravity(Gravity.CENTER);
+                tv.setBackgroundColor(0xFFF5F5F5);
+                return tv;
+            }
 
             default:
-                // Try fully-qualified class name
+                // Try full class name
                 try {
-                    Class<?> cls = Class.forName(tag);
+                    Class<?> cls = Class.forName(fullTag);
                     return (View) cls.getConstructor(Context.class).newInstance(context);
-                } catch (Exception e) {
-                    return null;
-                }
+                } catch (Exception ignored) {}
+                return null;
         }
     }
 
     // ── Attribute application ─────────────────────────────────────────────────
 
     private void applyAttributes(XmlPullParser p, View view, ViewGroup parent) {
-        // --- Layout params ---
-        String rawW = attr(p, "layout_width");
-        String rawH = attr(p, "layout_height");
-        int w = parseDim(rawW, ViewGroup.LayoutParams.WRAP_CONTENT);
-        int h = parseDim(rawH, ViewGroup.LayoutParams.WRAP_CONTENT);
+        // Layout size
+        int w = parseDim(attr(p, "layout_width"), ViewGroup.LayoutParams.WRAP_CONTENT);
+        int h = parseDim(attr(p, "layout_height"), ViewGroup.LayoutParams.WRAP_CONTENT);
 
-        int marginL = parseDimPx(attr(p, "layout_marginStart"), parseDimPx(attr(p, "layout_marginLeft"), 0));
-        int marginT = parseDimPx(attr(p, "layout_marginTop"), 0);
-        int marginR = parseDimPx(attr(p, "layout_marginEnd"), parseDimPx(attr(p, "layout_marginRight"), 0));
-        int marginB = parseDimPx(attr(p, "layout_marginBottom"), 0);
-        int marginAll = parseDimPx(attr(p, "layout_margin"), -1);
-        if (marginAll >= 0) { marginL = marginT = marginR = marginB = marginAll; }
+        // Margins
+        int ma  = parsePx(attr(p, "layout_margin"), -1);
+        int ml  = parsePx(attr(p, "layout_marginStart"),
+                   parsePx(attr(p, "layout_marginLeft"),  ma < 0 ? 0 : ma));
+        int mt  = parsePx(attr(p, "layout_marginTop"),    ma < 0 ? 0 : ma);
+        int mr  = parsePx(attr(p, "layout_marginEnd"),
+                   parsePx(attr(p, "layout_marginRight"), ma < 0 ? 0 : ma));
+        int mb  = parsePx(attr(p, "layout_marginBottom"), ma < 0 ? 0 : ma);
 
-        int weight = 0;
-        String rawWeight = attr(p, "layout_weight");
-        if (rawWeight != null) { try { weight = (int) Float.parseFloat(rawWeight); } catch (Exception ignored) {} }
+        float weight = parseFloat(attr(p, "layout_weight"), 0f);
 
-        ViewGroup.LayoutParams lp;
+        // Build LayoutParams
         if (parent instanceof LinearLayout) {
-            LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(w, h, weight);
-            llp.setMargins(marginL, marginT, marginR, marginB);
-            lp = llp;
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(w, h, weight);
+            lp.setMargins(ml, mt, mr, mb);
+            view.setLayoutParams(lp);
         } else if (parent instanceof RelativeLayout) {
-            RelativeLayout.LayoutParams rlp = new RelativeLayout.LayoutParams(w, h);
-            rlp.setMargins(marginL, marginT, marginR, marginB);
-            lp = rlp;
+            RelativeLayout.LayoutParams lp = new RelativeLayout.LayoutParams(w, h);
+            lp.setMargins(ml, mt, mr, mb);
+            view.setLayoutParams(lp);
         } else {
-            FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(w, h);
-            flp.setMargins(marginL, marginT, marginR, marginB);
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(w, h);
+            lp.setMargins(ml, mt, mr, mb);
             String lg = attr(p, "layout_gravity");
-            if (lg != null) flp.gravity = parseGravity(lg);
-            lp = flp;
-        }
-        view.setLayoutParams(lp);
-
-        // --- Padding ---
-        int padAll = parseDimPx(attr(p, "padding"), -1);
-        int padL = parseDimPx(attr(p, "paddingStart"), parseDimPx(attr(p, "paddingLeft"), padAll >= 0 ? padAll : 0));
-        int padT = parseDimPx(attr(p, "paddingTop"), padAll >= 0 ? padAll : 0);
-        int padR = parseDimPx(attr(p, "paddingEnd"), parseDimPx(attr(p, "paddingRight"), padAll >= 0 ? padAll : 0));
-        int padB = parseDimPx(attr(p, "paddingBottom"), padAll >= 0 ? padAll : 0);
-        view.setPadding(padL, padT, padR, padB);
-
-        // --- Background color ---
-        String bg = attr(p, "background");
-        if (bg != null && bg.startsWith("#")) {
-            try { view.setBackgroundColor(Color.parseColor(bg)); } catch (Exception ignored) {}
+            if (lg != null) lp.gravity = parseGravity(lg);
+            view.setLayoutParams(lp);
         }
 
-        // --- Visibility ---
+        // Padding
+        int pa = parsePx(attr(p, "padding"), -1);
+        int pl = parsePx(attr(p, "paddingStart"),
+                  parsePx(attr(p, "paddingLeft"),   pa < 0 ? 0 : pa));
+        int pt = parsePx(attr(p, "paddingTop"),     pa < 0 ? 0 : pa);
+        int pr = parsePx(attr(p, "paddingEnd"),
+                  parsePx(attr(p, "paddingRight"),  pa < 0 ? 0 : pa));
+        int pb = parsePx(attr(p, "paddingBottom"),  pa < 0 ? 0 : pa);
+        if (pl+pt+pr+pb > 0 || pa >= 0) view.setPadding(pl, pt, pr, pb);
+
+        // Background
+        applyBackground(view, attr(p, "background"));
+
+        // Elevation
+        String elev = attr(p, "elevation");
+        if (elev != null) view.setElevation(parsePx(elev, 0));
+
+        // Visibility
         String vis = attr(p, "visibility");
-        if ("gone".equals(vis)) view.setVisibility(View.GONE);
+        if ("gone".equals(vis))      view.setVisibility(View.GONE);
         else if ("invisible".equals(vis)) view.setVisibility(View.INVISIBLE);
 
-        // --- Elevation ---
-        String elev = attr(p, "elevation");
-        if (elev != null) view.setElevation(parseDimPx(elev, 0));
+        // Alpha
+        String alpha = attr(p, "alpha");
+        if (alpha != null) try { view.setAlpha(Float.parseFloat(alpha)); } catch (Exception ignored) {}
 
-        // --- LinearLayout specific ---
+        // Min width/height
+        String minW = attr(p, "minWidth");
+        if (minW != null) view.setMinimumWidth(parsePx(minW, 0));
+        String minH = attr(p, "minHeight");
+        if (minH != null) view.setMinimumHeight(parsePx(minH, 0));
+
+        // LinearLayout extras
         if (view instanceof LinearLayout) {
             LinearLayout ll = (LinearLayout) view;
             String orient = attr(p, "orientation");
-            if ("horizontal".equals(orient)) ll.setOrientation(LinearLayout.HORIZONTAL);
-            else ll.setOrientation(LinearLayout.VERTICAL);
+            ll.setOrientation("horizontal".equals(orient)
+                    ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
             String grav = attr(p, "gravity");
             if (grav != null) ll.setGravity(parseGravity(grav));
+            String divider = attr(p, "showDividers");
+            // divider not supported in simple renderer
         }
 
-        // --- TextView / Button / CheckBox ---
+        // TextView / Button extras
         if (view instanceof TextView) {
             TextView tv = (TextView) view;
             String text = attr(p, "text");
             if (text != null) tv.setText(text);
-            String textColor = attr(p, "textColor");
-            if (textColor != null && textColor.startsWith("#")) {
-                try { tv.setTextColor(Color.parseColor(textColor)); } catch (Exception ignored) {}
+
+            String tc = attr(p, "textColor");
+            if (tc != null && tc.startsWith("#")) {
+                try { tv.setTextColor(Color.parseColor(tc)); } catch (Exception ignored) {}
             }
-            String textSize = attr(p, "textSize");
-            if (textSize != null) {
-                float sp = parseRawDim(textSize, 14);
-                tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+
+            String ts = attr(p, "textSize");
+            if (ts != null) tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, parseDimRaw(ts, 14f));
+
+            String tStyle = attr(p, "textStyle");
+            if (tStyle != null) {
+                int s = Typeface.NORMAL;
+                if (tStyle.contains("bold"))   s |= Typeface.BOLD;
+                if (tStyle.contains("italic")) s |= Typeface.ITALIC;
+                tv.setTypeface(null, s);
             }
-            String textStyle = attr(p, "textStyle");
-            if (textStyle != null) {
-                int style = Typeface.NORMAL;
-                if (textStyle.contains("bold")) style |= Typeface.BOLD;
-                if (textStyle.contains("italic")) style |= Typeface.ITALIC;
-                tv.setTypeface(null, style);
-            }
+
             String hint = attr(p, "hint");
             if (hint != null && view instanceof EditText) ((EditText) tv).setHint(hint);
-            String gravity = attr(p, "gravity");
-            if (gravity != null) tv.setGravity(parseGravity(gravity));
-            String lines = attr(p, "maxLines");
-            if (lines != null) try { tv.setMaxLines(Integer.parseInt(lines)); } catch (Exception ignored) {}
-            String ems = attr(p, "singleLine");
-            if ("true".equals(ems)) { tv.setSingleLine(true); tv.setEllipsize(TextUtils.TruncateAt.END); }
+
+            String grav = attr(p, "gravity");
+            if (grav != null) tv.setGravity(parseGravity(grav));
+
+            if ("true".equals(attr(p, "singleLine"))) {
+                tv.setSingleLine(true);
+                tv.setEllipsize(TextUtils.TruncateAt.END);
+            }
+
+            String maxLines = attr(p, "maxLines");
+            if (maxLines != null) try { tv.setMaxLines(Integer.parseInt(maxLines)); } catch (Exception ignored) {}
+
+            String lines = attr(p, "lines");
+            if (lines != null) try { tv.setLines(Integer.parseInt(lines)); } catch (Exception ignored) {}
+
+            String allCaps = attr(p, "textAllCaps");
+            if ("false".equals(allCaps)) tv.setAllCaps(false);
         }
 
-        // --- ImageView ---
+        // ImageView extras
         if (view instanceof ImageView) {
-            String scaleType = attr(p, "scaleType");
-            if (scaleType != null) {
-                try { ((ImageView) view).setScaleType(ImageView.ScaleType.valueOf(scaleType.toUpperCase())); }
-                catch (Exception ignored) {}
+            String st = attr(p, "scaleType");
+            if (st != null) {
+                try {
+                    ((ImageView) view).setScaleType(
+                            ImageView.ScaleType.valueOf(st.toUpperCase()));
+                } catch (Exception ignored) {}
             }
         }
+    }
 
-        // --- ScrollView ---
-        if (view instanceof ScrollView) {
-            String fillVp = attr(p, "fillViewport");
-            ((ScrollView) view).setFillViewport("true".equals(fillVp));
+    private void applyBackground(View view, String bg) {
+        if (bg == null || bg.isEmpty()) return;
+        if (bg.startsWith("#")) {
+            try { view.setBackgroundColor(Color.parseColor(bg)); } catch (Exception ignored) {}
         }
+        // @drawable/ → already sanitized to empty, ignore
+        // @color/ → already sanitized to #hex, handled above
     }
 
     // ── Attribute helpers ─────────────────────────────────────────────────────
 
     private String attr(XmlPullParser p, String name) {
-        String v = p.getAttributeValue(NS_ANDROID, name);
+        String v = p.getAttributeValue(NS, name);
         if (v == null) v = p.getAttributeValue(null, name);
-        return v != null ? v.trim() : null;
+        return (v != null) ? v.trim() : null;
     }
 
     private int parseDim(String raw, int def) {
         if (raw == null) return def;
-        if ("match_parent".equals(raw) || "fill_parent".equals(raw)) return ViewGroup.LayoutParams.MATCH_PARENT;
-        if ("wrap_content".equals(raw)) return ViewGroup.LayoutParams.WRAP_CONTENT;
-        return parseDimPx(raw, def);
+        if ("match_parent".equals(raw) || "fill_parent".equals(raw))
+            return ViewGroup.LayoutParams.MATCH_PARENT;
+        if ("wrap_content".equals(raw))
+            return ViewGroup.LayoutParams.WRAP_CONTENT;
+        return parsePx(raw, def);
     }
 
-    private int parseDimPx(String raw, int def) {
+    private int parsePx(String raw, int def) {
         if (raw == null || raw.isEmpty()) return def;
         try {
-            if (raw.endsWith("dp") || raw.endsWith("dip")) {
-                float dp = Float.parseFloat(raw.replace("dp","").replace("dip","").trim());
-                return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp,
-                        context.getResources().getDisplayMetrics()));
-            }
+            String digits = raw.replaceAll("[^0-9.\\-]", "");
+            if (digits.isEmpty()) return def;
+            float val = Float.parseFloat(digits);
             if (raw.endsWith("sp")) {
-                float sp = Float.parseFloat(raw.replace("sp","").trim());
-                return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sp,
+                return Math.round(TypedValue.applyDimension(
+                        TypedValue.COMPLEX_UNIT_SP, val,
                         context.getResources().getDisplayMetrics()));
             }
-            if (raw.endsWith("px")) {
-                return (int) Float.parseFloat(raw.replace("px","").trim());
-            }
-            return (int) Float.parseFloat(raw.trim());
+            if (raw.endsWith("px")) return (int) val;
+            // dp (default)
+            return Math.round(TypedValue.applyDimension(
+                    TypedValue.COMPLEX_UNIT_DIP, val,
+                    context.getResources().getDisplayMetrics()));
         } catch (Exception e) { return def; }
     }
 
-    private float parseRawDim(String raw, float def) {
+    private float parseDimRaw(String raw, float def) {
         if (raw == null) return def;
-        try { return Float.parseFloat(raw.replaceAll("[^0-9.]", "")); }
+        try { return Float.parseFloat(raw.replaceAll("[^0-9.\\-]", "")); }
         catch (Exception e) { return def; }
+    }
+
+    private float parseFloat(String raw, float def) {
+        if (raw == null) return def;
+        try { return Float.parseFloat(raw.trim()); } catch (Exception e) { return def; }
     }
 
     private int parseGravity(String raw) {
         if (raw == null) return Gravity.NO_GRAVITY;
-        int g = Gravity.NO_GRAVITY;
-        if (raw.contains("center_horizontal") || raw.contains("center")) g |= Gravity.CENTER_HORIZONTAL;
-        if (raw.contains("center_vertical") || raw.contains("center")) g |= Gravity.CENTER_VERTICAL;
+        int g = 0;
+        if (raw.contains("center_horizontal")) g |= Gravity.CENTER_HORIZONTAL;
+        if (raw.contains("center_vertical"))   g |= Gravity.CENTER_VERTICAL;
+        if (raw.equals("center"))              g |= Gravity.CENTER;
         if (raw.contains("start") || raw.contains("left")) g |= Gravity.START;
-        if (raw.contains("end") || raw.contains("right")) g |= Gravity.END;
-        if (raw.contains("top")) g |= Gravity.TOP;
+        if (raw.contains("end")   || raw.contains("right")) g |= Gravity.END;
+        if (raw.contains("top"))    g |= Gravity.TOP;
         if (raw.contains("bottom")) g |= Gravity.BOTTOM;
-        return g;
+        if (raw.contains("fill_horizontal")) g |= Gravity.FILL_HORIZONTAL;
+        if (raw.contains("fill_vertical"))   g |= Gravity.FILL_VERTICAL;
+        return g == 0 ? Gravity.NO_GRAVITY : g;
+    }
+
+    private int dp(int val) {
+        return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, val,
+                context.getResources().getDisplayMetrics()));
     }
 }
