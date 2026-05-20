@@ -46,19 +46,16 @@ import pro.sketchware.utility.FileUtil;
 import pro.sketchware.utility.SketchwareUtil;
 import pro.sketchware.utility.UI;
 
-/**
- * MT Manager-style project file manager.
- * Full file operations: browse, edit, rename, delete, copy, multi-select, search, new file/folder.
- */
 public class ProjectFileManagerActivity extends BaseAppCompatActivity {
 
     public static final String EXTRA_SC_ID = "sc_id";
 
-    // Sort modes
-    private static final int SORT_NAME = 0;
-    private static final int SORT_DATE = 1;
-    private static final int SORT_SIZE = 2;
-    private static final int SORT_EXT  = 3;
+    private static final int SORT_NAME = 0, SORT_DATE = 1, SORT_SIZE = 2, SORT_EXT = 3;
+
+    // Binary extensions — show info but don't open as text
+    private static final Set<String> BINARY_EXTS = new HashSet<>(Arrays.asList(
+            "class","dex","jar","aar","apk","aab","zip","png","jpg","jpeg",
+            "webp","gif","ttf","otf","mp3","mp4","ogg","wav","so","bin","dat"));
 
     private ActivityProjectFileManagerBinding binding;
     private FileAdapter adapter;
@@ -70,9 +67,8 @@ public class ProjectFileManagerActivity extends BaseAppCompatActivity {
     private final Set<String> selectedPaths = new HashSet<>();
     private String searchQuery = "";
     private final Stack<File> history = new Stack<>();
-    private final SimpleDateFormat dateFmt = new SimpleDateFormat("dd MMM yyyy HH:mm", Locale.getDefault());
-
-    // Clipboard for copy/paste
+    private final SimpleDateFormat dateFmt =
+            new SimpleDateFormat("dd MMM yyyy  HH:mm", Locale.getDefault());
     private File clipboardFile = null;
     private boolean clipboardIsCut = false;
 
@@ -95,8 +91,14 @@ public class ProjectFileManagerActivity extends BaseAppCompatActivity {
         UI.addSystemWindowInsetToPadding(binding.appBarLayout, true, true, true, false);
         UI.addSystemWindowInsetToMargin(binding.recyclerView, false, false, false, true);
 
-        // Start at project root
-        navigateTo(new File(wq.c(scId)));
+        // Start at DATA directory (readable source files), NOT mysc (binary build output)
+        String dataPath = wq.b(scId);   // .sketchware/data/sc_id
+        File filesDir = new File(dataPath + "/files");
+        if (filesDir.exists()) {
+            navigateTo(filesDir);
+        } else {
+            navigateTo(new File(dataPath));
+        }
     }
 
     @Override
@@ -116,98 +118,89 @@ public class ProjectFileManagerActivity extends BaseAppCompatActivity {
     private void setupToolbar() {
         binding.toolbar.setNavigationOnClickListener(v -> onBackPressed());
 
-        int MENU_SEARCH = 1, MENU_SORT = 2, MENU_NEW_FILE = 3,
-                MENU_NEW_FOLDER = 4, MENU_PASTE = 5, MENU_SELECT = 6,
-                MENU_SHOW_DATA = 7;
+        int SEARCH=1, SORT=2, SELECT=3, NEW_FILE=4, NEW_FOLDER=5,
+                PASTE=6, GO_DATA=7, GO_JAVA=8, GO_LAYOUT=9, GO_CUSTOM=10;
 
-        binding.toolbar.getMenu().add(0, MENU_SEARCH,    0, "Search");
-        binding.toolbar.getMenu().add(0, MENU_SORT,      1, "Sort by");
-        binding.toolbar.getMenu().add(0, MENU_SELECT,    2, "Multi-select");
-        binding.toolbar.getMenu().add(0, MENU_NEW_FILE,  3, "New file");
-        binding.toolbar.getMenu().add(0, MENU_NEW_FOLDER,4, "New folder");
-        binding.toolbar.getMenu().add(0, MENU_PASTE,     5, "Paste");
-        binding.toolbar.getMenu().add(0, MENU_SHOW_DATA, 6, "Open data folder");
+        binding.toolbar.getMenu().add(0,SEARCH,0,"Search");
+        binding.toolbar.getMenu().add(0,SORT,1,"Sort by");
+        binding.toolbar.getMenu().add(0,SELECT,2,"Multi-select");
+        binding.toolbar.getMenu().add(0,NEW_FILE,3,"New file");
+        binding.toolbar.getMenu().add(0,NEW_FOLDER,4,"New folder");
+        binding.toolbar.getMenu().add(0,PASTE,5,"Paste");
+        binding.toolbar.getMenu().add(0,GO_DATA,6,"Go to data folder");
+        binding.toolbar.getMenu().add(0,GO_JAVA,7,"Go to Java sources");
+        binding.toolbar.getMenu().add(0,GO_LAYOUT,8,"Go to Layouts");
+        binding.toolbar.getMenu().add(0,GO_CUSTOM,9,"Go to custom_src (your edits)");
 
         binding.toolbar.setOnMenuItemClickListener(item -> {
             int id = item.getItemId();
-            if (id == MENU_SEARCH) {
-                toggleSearch(); return true;
-            }
-            if (id == MENU_SORT) {
-                showSortDialog(); return true;
-            }
-            if (id == MENU_SELECT) {
-                enterMultiSelect(); return true;
-            }
-            if (id == MENU_NEW_FILE) {
-                promptNewFile(); return true;
-            }
-            if (id == MENU_NEW_FOLDER) {
-                promptNewFolder(); return true;
-            }
-            if (id == MENU_PASTE) {
-                pasteFile(); return true;
-            }
-            if (id == MENU_SHOW_DATA) {
-                navigateTo(new File(wq.b(scId))); return true;
-            }
+            if (id==SEARCH)    { toggleSearch(); return true; }
+            if (id==SORT)      { showSortDialog(); return true; }
+            if (id==SELECT)    { enterMultiSelect(); return true; }
+            if (id==NEW_FILE)  { promptNew(false); return true; }
+            if (id==NEW_FOLDER){ promptNew(true); return true; }
+            if (id==PASTE)     { pasteFile(); return true; }
+            if (id==GO_DATA)   { navigateTo(new File(wq.b(scId))); return true; }
+            if (id==GO_JAVA)   { goToJava(); return true; }
+            if (id==GO_LAYOUT) { goToLayout(); return true; }
+            if (id==GO_CUSTOM) { goToCustomSrc(); return true; }
             return false;
         });
+    }
+
+    private void goToJava() {
+        // Java sources: data/sc_id/files/java/
+        File javaDir = new File(wq.b(scId) + "/files/java");
+        if (!javaDir.exists()) javaDir = new File(wq.b(scId) + "/files");
+        navigateTo(javaDir.exists() ? javaDir : new File(wq.b(scId)));
+    }
+
+    private void goToLayout() {
+        File layoutDir = new File(wq.b(scId) + "/files/resource/layout");
+        if (!layoutDir.exists()) layoutDir = new File(wq.b(scId) + "/files/resource");
+        navigateTo(layoutDir.exists() ? layoutDir : new File(wq.b(scId)));
+    }
+
+    private void goToCustomSrc() {
+        File customDir = new File(wq.b(scId) + "/custom_src");
+        if (!customDir.exists()) {
+            customDir.mkdirs();
+            SketchwareUtil.toast("custom_src folder created");
+        }
+        navigateTo(customDir);
     }
 
     // ── Search ────────────────────────────────────────────────────────────────
 
     private void setupSearch() {
         binding.tilSearch.setVisibility(View.GONE);
-        if (binding.etSearch != null) {
-            binding.etSearch.addTextChangedListener(new TextWatcher() {
-                @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
-                @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
-                @Override public void afterTextChanged(Editable s) {
-                    searchQuery = s.toString().trim().toLowerCase();
-                    refreshList();
-                }
-            });
-        }
+        binding.etSearch.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s,int a,int b,int c){}
+            @Override public void onTextChanged(CharSequence s,int a,int b,int c){}
+            @Override public void afterTextChanged(Editable s) {
+                searchQuery = s.toString().trim().toLowerCase();
+                refreshList();
+            }
+        });
     }
 
     private void toggleSearch() {
-        boolean visible = binding.tilSearch.getVisibility() == View.VISIBLE;
-        binding.tilSearch.setVisibility(visible ? View.GONE : View.VISIBLE);
-        if (visible) { searchQuery = ""; refreshList(); }
+        boolean vis = binding.tilSearch.getVisibility() == View.VISIBLE;
+        binding.tilSearch.setVisibility(vis ? View.GONE : View.VISIBLE);
+        if (vis) { searchQuery = ""; refreshList(); }
+        else binding.etSearch.requestFocus();
     }
 
-    // ── Action bar (multi-select) ──────────────────────────────────────────────
+    // ── Action bar ────────────────────────────────────────────────────────────
 
     private void setupActionBar() {
         binding.btnSelectAll.setOnClickListener(v -> {
-            if (adapter != null) {
-                List<FileNode> nodes = adapter.getCurrentNodes();
-                for (FileNode n : nodes) {
-                    if (!n.isSection && n.file != null)
-                        selectedPaths.add(n.file.getAbsolutePath());
-                }
-                updateSelectionUi();
-                adapter.notifyDataSetChanged();
-            }
+            for (FileNode n : adapter.getNodes())
+                if (n.file != null) selectedPaths.add(n.file.getAbsolutePath());
+            updateSelectionUi();
+            adapter.notifyDataSetChanged();
         });
-
-        binding.btnActionDelete.setOnClickListener(v -> {
-            if (selectedPaths.isEmpty()) return;
-            new MaterialAlertDialogBuilder(this)
-                    .setTitle("Delete " + selectedPaths.size() + " item(s)?")
-                    .setMessage("This cannot be undone.")
-                    .setPositiveButton("Delete", (d, w) -> {
-                        for (String path : selectedPaths) {
-                            deleteRecursive(new File(path));
-                        }
-                        exitMultiSelect();
-                        refreshList();
-                        SketchwareUtil.toast("Deleted");
-                    })
-                    .setNegativeButton("Cancel", null).show();
-        });
-
+        binding.btnActionDelete.setOnClickListener(v -> confirmMultiDelete());
         binding.btnCancelSelect.setOnClickListener(v -> exitMultiSelect());
     }
 
@@ -215,8 +208,8 @@ public class ProjectFileManagerActivity extends BaseAppCompatActivity {
         multiSelect = true;
         selectedPaths.clear();
         binding.actionBar.setVisibility(View.VISIBLE);
-        adapter.notifyDataSetChanged();
         updateSelectionUi();
+        adapter.notifyDataSetChanged();
     }
 
     private void exitMultiSelect() {
@@ -228,6 +221,20 @@ public class ProjectFileManagerActivity extends BaseAppCompatActivity {
 
     private void updateSelectionUi() {
         binding.tvSelectedCount.setText(selectedPaths.size() + " selected");
+    }
+
+    private void confirmMultiDelete() {
+        if (selectedPaths.isEmpty()) return;
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("Delete " + selectedPaths.size() + " item(s)?")
+                .setMessage("This cannot be undone.")
+                .setPositiveButton("Delete", (d, w) -> {
+                    for (String p : selectedPaths) deleteRecursive(new File(p));
+                    exitMultiSelect();
+                    refreshList();
+                    SketchwareUtil.toast("Deleted");
+                })
+                .setNegativeButton("Cancel", null).show();
     }
 
     // ── RecyclerView ──────────────────────────────────────────────────────────
@@ -243,19 +250,21 @@ public class ProjectFileManagerActivity extends BaseAppCompatActivity {
     // ── FAB ───────────────────────────────────────────────────────────────────
 
     private void setupFab() {
-        binding.fabNew.setOnClickListener(v -> {
-            new MaterialAlertDialogBuilder(this)
-                    .setTitle("Create new")
-                    .setItems(new String[]{"File", "Folder"}, (d, which) -> {
-                        if (which == 0) promptNewFile();
-                        else promptNewFolder();
-                    }).show();
-        });
+        binding.fabNew.setOnClickListener(v ->
+                new MaterialAlertDialogBuilder(this)
+                        .setTitle("Create new")
+                        .setItems(new String[]{"File", "Folder"},
+                                (d, w) -> promptNew(w == 1))
+                        .show());
     }
 
     // ── Navigation ────────────────────────────────────────────────────────────
 
     private void navigateTo(File dir) {
+        if (dir == null || !dir.exists()) {
+            SketchwareUtil.toastError("Folder not found");
+            return;
+        }
         if (currentDir != null) history.push(currentDir);
         currentDir = dir;
         refreshList();
@@ -264,14 +273,18 @@ public class ProjectFileManagerActivity extends BaseAppCompatActivity {
     private void refreshList() {
         if (currentDir == null) return;
         binding.progressBar.setVisibility(View.VISIBLE);
+        binding.recyclerView.setVisibility(View.GONE);
         updateBreadcrumb();
 
         new Thread(() -> {
             List<FileNode> nodes = buildNodes();
             runOnUiThread(() -> {
                 binding.progressBar.setVisibility(View.GONE);
+                binding.recyclerView.setVisibility(View.VISIBLE);
                 adapter.setNodes(nodes);
                 binding.tvEmpty.setVisibility(nodes.isEmpty() ? View.VISIBLE : View.GONE);
+                // Scroll to top
+                binding.recyclerView.scrollToPosition(0);
             });
         }).start();
     }
@@ -280,38 +293,32 @@ public class ProjectFileManagerActivity extends BaseAppCompatActivity {
 
     private List<FileNode> buildNodes() {
         List<FileNode> nodes = new ArrayList<>();
-        if (currentDir == null || !currentDir.exists()) return nodes;
+        if (!currentDir.exists()) return nodes;
 
         File[] files = currentDir.listFiles();
         if (files == null) return nodes;
 
-        // Filter by search
-        List<File> filtered = new ArrayList<>();
+        List<File> list = new ArrayList<>();
         for (File f : files) {
             if (searchQuery.isEmpty() ||
-                    f.getName().toLowerCase().contains(searchQuery)) {
-                filtered.add(f);
-            }
+                    f.getName().toLowerCase().contains(searchQuery))
+                list.add(f);
         }
 
-        // Sort
-        filtered.sort((a, b) -> {
-            // Directories first
+        list.sort((a, b) -> {
             if (a.isDirectory() != b.isDirectory())
                 return a.isDirectory() ? -1 : 1;
-            int cmp = 0;
+            int c = 0;
             switch (sortMode) {
-                case SORT_DATE: cmp = Long.compare(a.lastModified(), b.lastModified()); break;
-                case SORT_SIZE: cmp = Long.compare(a.length(), b.length()); break;
-                case SORT_EXT:  cmp = getExt(a.getName()).compareTo(getExt(b.getName())); break;
-                default:        cmp = a.getName().compareToIgnoreCase(b.getName());
+                case SORT_DATE: c = Long.compare(a.lastModified(), b.lastModified()); break;
+                case SORT_SIZE: c = Long.compare(a.length(), b.length()); break;
+                case SORT_EXT:  c = ext(a.getName()).compareTo(ext(b.getName())); break;
+                default:        c = a.getName().compareToIgnoreCase(b.getName());
             }
-            return sortAsc ? cmp : -cmp;
+            return sortAsc ? c : -c;
         });
 
-        for (File f : filtered) {
-            nodes.add(new FileNode(f, false));
-        }
+        for (File f : list) nodes.add(new FileNode(f));
         return nodes;
     }
 
@@ -321,37 +328,27 @@ public class ProjectFileManagerActivity extends BaseAppCompatActivity {
         binding.breadcrumbContainer.removeAllViews();
         if (currentDir == null) return;
 
-        String path = currentDir.getAbsolutePath();
-        // Replace known roots with short labels
         String dataPath = wq.b(scId);
-        String myscPath = wq.c(scId);
-        String display = path;
-        if (path.startsWith(myscPath)) display = "mysc" + path.substring(myscPath.length());
-        else if (path.startsWith(dataPath)) display = "data" + path.substring(dataPath.length());
+        String path = currentDir.getAbsolutePath();
+        String display = path.startsWith(dataPath) ? "data" + path.substring(dataPath.length()) : path;
 
         String[] parts = display.split("/");
-        StringBuilder cumulative = new StringBuilder(path.startsWith(myscPath) ? myscPath
-                : path.startsWith(dataPath) ? dataPath : "/");
+        StringBuilder cum = new StringBuilder(dataPath);
 
         for (int i = 0; i < parts.length; i++) {
             if (parts[i].isEmpty()) continue;
-            String part = parts[i];
-            String finalCumulative = cumulative.toString();
+            final String part = parts[i];
+            final String dirPath = i == 0 ? dataPath : cum + "/" + part;
 
             TextView crumb = new TextView(this);
-            crumb.setText(i == 0 ? part : " / " + part);
-            crumb.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelMedium);
+            crumb.setText((i > 0 ? " › " : "") + part);
+            crumb.setTextAppearance(
+                    com.google.android.material.R.style.TextAppearance_Material3_LabelMedium);
             crumb.setPadding(4, 0, 4, 0);
-
-            File dirForCrumb = new File(finalCumulative + (i == 0 ? "" : "/" + part));
-            crumb.setOnClickListener(v -> navigateTo(dirForCrumb));
+            crumb.setOnClickListener(v -> navigateTo(new File(dirPath)));
             binding.breadcrumbContainer.addView(crumb);
-
-            if (i > 0) cumulative.append("/").append(part);
-            else cumulative = new StringBuilder(finalCumulative);
+            cum.append("/").append(part);
         }
-
-        // Scroll to end
         binding.breadcrumbScroll.post(() ->
                 binding.breadcrumbScroll.fullScroll(View.FOCUS_RIGHT));
     }
@@ -362,9 +359,9 @@ public class ProjectFileManagerActivity extends BaseAppCompatActivity {
         if (node.file == null) return;
 
         if (multiSelect) {
-            String path = node.file.getAbsolutePath();
-            if (selectedPaths.contains(path)) selectedPaths.remove(path);
-            else selectedPaths.add(path);
+            String p = node.file.getAbsolutePath();
+            if (selectedPaths.contains(p)) selectedPaths.remove(p);
+            else selectedPaths.add(p);
             updateSelectionUi();
             adapter.notifyDataSetChanged();
             return;
@@ -373,203 +370,129 @@ public class ProjectFileManagerActivity extends BaseAppCompatActivity {
         if (node.file.isDirectory()) {
             navigateTo(node.file);
         } else {
-            openFile(node.file);
+            String e = ext(node.file.getName());
+            if (BINARY_EXTS.contains(e)) {
+                showProperties(node.file);
+            } else {
+                openFile(node.file);
+            }
         }
     }
 
     private void onFileLongClick(FileNode node) {
-        if (node.file == null) return;
-        showFileOptions(node.file);
+        if (node.file != null) showFileOptions(node.file);
     }
 
     private void openFile(File file) {
         String name = file.getName();
-        String ext  = getExt(name);
+        String e = ext(name);
 
-        switch (ext) {
-            case "java": case "kt": case "gradle": case "properties":
-            case "json": case "txt": case "md": case "pro":
-                launchCodeViewer(file, CodeViewerActivity.SCHEME_JAVA);
-                break;
-
-            case "xml":
-                if (file.getAbsolutePath().contains("/layout/") ||
-                        file.getAbsolutePath().contains("/custom_src/xml/")) {
-                    // Layout XML → ViewCodeEditor (has Live Preview button)
-                    String code = FileUtil.readFile(file.getAbsolutePath());
-                    Intent i = new Intent(this, ViewCodeEditorActivity.class);
-                    i.putExtra("code", code);
-                    i.putExtra("sc_id", scId);
-                    i.putExtra("scheme", CodeViewerActivity.SCHEME_XML);
-                    i.putExtra("title", name);
-                    i.putExtra(CodeViewerActivity.EXTRA_FILENAME, name);
-                    startActivity(i);
-                } else {
-                    launchCodeViewer(file, CodeViewerActivity.SCHEME_XML);
-                }
-                break;
-
-            case "png": case "jpg": case "jpeg": case "webp": case "svg":
-                SketchwareUtil.toast("Image preview coming soon");
-                break;
-
-            default:
-                // Try as text anyway
-                launchCodeViewer(file, CodeViewerActivity.SCHEME_JAVA);
+        if (e.equals("xml") && (file.getAbsolutePath().contains("/layout/")
+                || file.getAbsolutePath().contains("/custom_src/xml/"))) {
+            String code = FileUtil.readFile(file.getAbsolutePath());
+            Intent i = new Intent(this, ViewCodeEditorActivity.class);
+            i.putExtra("code", code);
+            i.putExtra("sc_id", scId);
+            i.putExtra("scheme", CodeViewerActivity.SCHEME_XML);
+            i.putExtra("title", name);
+            i.putExtra(CodeViewerActivity.EXTRA_FILENAME, name);
+            startActivity(i);
+        } else {
+            String scheme = e.equals("xml") ? CodeViewerActivity.SCHEME_XML
+                    : CodeViewerActivity.SCHEME_JAVA;
+            String code = FileUtil.readFile(file.getAbsolutePath());
+            Intent i = new Intent(this, CodeViewerActivity.class);
+            i.putExtra("code", code);
+            i.putExtra("sc_id", scId);
+            i.putExtra("scheme", scheme);
+            i.putExtra(CodeViewerActivity.EXTRA_FILENAME, name);
+            startActivity(i);
         }
     }
 
-    private void launchCodeViewer(File file, String scheme) {
-        String code = FileUtil.readFile(file.getAbsolutePath());
-        Intent i = new Intent(this, CodeViewerActivity.class);
-        i.putExtra("code", code);
-        i.putExtra("sc_id", scId);
-        i.putExtra("scheme", scheme);
-        i.putExtra(CodeViewerActivity.EXTRA_FILENAME, file.getName());
-        startActivity(i);
-    }
-
-    // ── File options dialog ───────────────────────────────────────────────────
+    // ── File options ──────────────────────────────────────────────────────────
 
     private void showFileOptions(File file) {
-        String size = file.isDirectory() ? "Folder" : formatSize(file.length());
-        String date = dateFmt.format(new Date(file.lastModified()));
-        String info = size + "  •  " + date;
+        String e = ext(file.getName());
+        boolean isBinary = BINARY_EXTS.contains(e);
+        boolean isDir = file.isDirectory();
 
-        List<String> options = new ArrayList<>();
-        if (!file.isDirectory()) options.add("Open / Edit");
-        options.add("Rename");
-        options.add("Copy");
-        options.add("Cut");
-        if (!file.isDirectory()) options.add("Copy path");
-        if (!file.isDirectory()) options.add("Copy content");
-        options.add("Properties");
-        options.add("Delete");
+        List<String> opts = new ArrayList<>();
+        if (!isDir && !isBinary) opts.add("Open / Edit");
+        opts.add("Rename");
+        opts.add("Copy");
+        opts.add("Cut");
+        if (!isDir && !isBinary) opts.add("Copy content");
+        opts.add("Copy path");
+        opts.add("Properties");
+        opts.add("Delete");
 
         new MaterialAlertDialogBuilder(this)
                 .setTitle(file.getName())
-                .setMessage(info)
-                .setItems(options.toArray(new String[0]), (d, which) -> {
-                    String action = options.get(which);
-                    switch (action) {
-                        case "Open / Edit":   openFile(file); break;
-                        case "Rename":        promptRename(file); break;
-                        case "Copy":          clipboard(file, false); break;
-                        case "Cut":           clipboard(file, true); break;
-                        case "Copy path":     copyText(file.getAbsolutePath(), "Path copied"); break;
-                        case "Copy content":
-                            copyText(FileUtil.readFile(file.getAbsolutePath()), "Content copied"); break;
-                        case "Properties":    showProperties(file); break;
-                        case "Delete":        confirmDelete(file); break;
+                .setMessage(isDir ? "Folder" : formatSize(file.length()) + "  •  " +
+                        dateFmt.format(new Date(file.lastModified())))
+                .setItems(opts.toArray(new String[0]), (d, w) -> {
+                    switch (opts.get(w)) {
+                        case "Open / Edit":  openFile(file); break;
+                        case "Rename":       promptRename(file); break;
+                        case "Copy":         clipboard(file, false); break;
+                        case "Cut":          clipboard(file, true); break;
+                        case "Copy content": copyText(FileUtil.readFile(file.getAbsolutePath()), "Content copied"); break;
+                        case "Copy path":    copyText(file.getAbsolutePath(), "Path copied"); break;
+                        case "Properties":   showProperties(file); break;
+                        case "Delete":       confirmDelete(file); break;
                     }
                 })
-                .setNegativeButton("Cancel", null)
-                .show();
+                .setNegativeButton("Cancel", null).show();
     }
-
-    // ── Rename ────────────────────────────────────────────────────────────────
 
     private void promptRename(File file) {
         EditText et = new EditText(this);
+        et.setText(file.getName()); et.selectAll();
         et.setInputType(InputType.TYPE_CLASS_TEXT);
-        et.setText(file.getName());
-        et.selectAll();
-
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("Rename")
-                .setView(et)
+        new MaterialAlertDialogBuilder(this).setTitle("Rename").setView(et)
                 .setPositiveButton("Rename", (d, w) -> {
-                    String newName = et.getText().toString().trim();
-                    if (newName.isEmpty()) return;
-                    File target = new File(file.getParent(), newName);
-                    if (file.renameTo(target)) {
-                        refreshList();
-                        SketchwareUtil.toast("Renamed to " + newName);
-                    } else {
-                        SketchwareUtil.toastError("Rename failed");
-                    }
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
+                    String n = et.getText().toString().trim();
+                    if (n.isEmpty()) return;
+                    File t = new File(file.getParent(), n);
+                    if (file.renameTo(t)) { refreshList(); SketchwareUtil.toast("Renamed"); }
+                    else SketchwareUtil.toastError("Rename failed");
+                }).setNegativeButton("Cancel", null).show();
     }
 
-    // ── New file / folder ─────────────────────────────────────────────────────
-
-    private void promptNewFile() {
+    private void promptNew(boolean isFolder) {
         EditText et = new EditText(this);
         et.setInputType(InputType.TYPE_CLASS_TEXT);
-        et.setHint("e.g. MyClass.java");
-
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("New file")
+        et.setHint(isFolder ? "Folder name" : "File name (e.g. MyClass.java)");
+        new MaterialAlertDialogBuilder(this).setTitle("New " + (isFolder ? "folder" : "file"))
                 .setView(et)
                 .setPositiveButton("Create", (d, w) -> {
-                    String name = et.getText().toString().trim();
-                    if (name.isEmpty()) return;
-                    File newFile = new File(currentDir, name);
+                    String n = et.getText().toString().trim();
+                    if (n.isEmpty()) return;
+                    File f = new File(currentDir, n);
                     try {
-                        if (newFile.createNewFile()) {
-                            refreshList();
-                            SketchwareUtil.toast("Created: " + name);
-                        } else {
-                            SketchwareUtil.toastError("File already exists");
-                        }
-                    } catch (Exception e) {
-                        SketchwareUtil.toastError("Failed: " + e.getMessage());
+                        boolean ok = isFolder ? f.mkdirs() : f.createNewFile();
+                        if (ok) { refreshList(); SketchwareUtil.toast("Created: " + n); }
+                        else SketchwareUtil.toastError("Already exists");
+                    } catch (Exception ex) {
+                        SketchwareUtil.toastError("Failed: " + ex.getMessage());
                     }
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
+                }).setNegativeButton("Cancel", null).show();
     }
 
-    private void promptNewFolder() {
-        EditText et = new EditText(this);
-        et.setInputType(InputType.TYPE_CLASS_TEXT);
-        et.setHint("Folder name");
-
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("New folder")
-                .setView(et)
-                .setPositiveButton("Create", (d, w) -> {
-                    String name = et.getText().toString().trim();
-                    if (name.isEmpty()) return;
-                    File dir = new File(currentDir, name);
-                    if (dir.mkdirs()) {
-                        refreshList();
-                        SketchwareUtil.toast("Created: " + name);
-                    } else {
-                        SketchwareUtil.toastError("Failed to create folder");
-                    }
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
-
-    // ── Copy / Cut / Paste ────────────────────────────────────────────────────
-
-    private void clipboard(File file, boolean cut) {
-        clipboardFile = file;
-        clipboardIsCut = cut;
-        SketchwareUtil.toast((cut ? "Cut: " : "Copied: ") + file.getName()
-                + "\nNavigate to destination and use Paste from menu");
+    private void clipboard(File f, boolean cut) {
+        clipboardFile = f; clipboardIsCut = cut;
+        SketchwareUtil.toast((cut?"Cut: ":"Copied: ") + f.getName()
+                + "\nGo to destination → ⋮ → Paste");
     }
 
     private void pasteFile() {
-        if (clipboardFile == null) {
-            SketchwareUtil.toastError("Nothing to paste");
-            return;
-        }
+        if (clipboardFile == null) { SketchwareUtil.toastError("Nothing to paste"); return; }
         File dest = new File(currentDir, clipboardFile.getName());
         try {
-            if (clipboardFile.isDirectory()) {
-                copyDir(clipboardFile, dest);
-            } else {
-                FileUtil.copyFile(clipboardFile.getAbsolutePath(), dest.getAbsolutePath());
-            }
-            if (clipboardIsCut) {
-                deleteRecursive(clipboardFile);
-                clipboardFile = null;
-            }
+            if (clipboardFile.isDirectory()) copyDir(clipboardFile, dest);
+            else FileUtil.copyFile(clipboardFile.getAbsolutePath(), dest.getAbsolutePath());
+            if (clipboardIsCut) { deleteRecursive(clipboardFile); clipboardFile = null; }
             refreshList();
             SketchwareUtil.toast("Pasted: " + dest.getName());
         } catch (Exception e) {
@@ -577,137 +500,100 @@ public class ProjectFileManagerActivity extends BaseAppCompatActivity {
         }
     }
 
-    // ── Delete ────────────────────────────────────────────────────────────────
-
     private void confirmDelete(File file) {
         new MaterialAlertDialogBuilder(this)
                 .setTitle("Delete " + file.getName() + "?")
-                .setMessage(file.isDirectory()
-                        ? "This will delete the entire folder and its contents."
-                        : "This cannot be undone.")
-                .setPositiveButton("Delete", (d, w) -> {
-                    deleteRecursive(file);
-                    refreshList();
-                    SketchwareUtil.toast("Deleted");
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
+                .setMessage(file.isDirectory() ? "Entire folder will be deleted." : "Cannot be undone.")
+                .setPositiveButton("Delete", (d,w) -> {
+                    deleteRecursive(file); refreshList(); SketchwareUtil.toast("Deleted");
+                }).setNegativeButton("Cancel", null).show();
     }
-
-    private void deleteRecursive(File f) {
-        if (f.isDirectory()) {
-            File[] children = f.listFiles();
-            if (children != null) for (File c : children) deleteRecursive(c);
-        }
-        f.delete();
-    }
-
-    // ── Sort ──────────────────────────────────────────────────────────────────
 
     private void showSortDialog() {
-        String[] options = {"Name (A-Z)", "Name (Z-A)", "Date (newest)", "Date (oldest)",
-                "Size (largest)", "Size (smallest)", "Extension"};
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("Sort by")
-                .setItems(options, (d, which) -> {
-                    switch (which) {
-                        case 0: sortMode = SORT_NAME; sortAsc = true;  break;
-                        case 1: sortMode = SORT_NAME; sortAsc = false; break;
-                        case 2: sortMode = SORT_DATE; sortAsc = false; break;
-                        case 3: sortMode = SORT_DATE; sortAsc = true;  break;
-                        case 4: sortMode = SORT_SIZE; sortAsc = false; break;
-                        case 5: sortMode = SORT_SIZE; sortAsc = true;  break;
-                        case 6: sortMode = SORT_EXT;  sortAsc = true;  break;
+        String[] opts = {"Name A-Z","Name Z-A","Date newest","Date oldest",
+                "Size largest","Size smallest","Extension"};
+        new MaterialAlertDialogBuilder(this).setTitle("Sort by")
+                .setItems(opts, (d,w) -> {
+                    switch(w){
+                        case 0:sortMode=SORT_NAME;sortAsc=true;break;
+                        case 1:sortMode=SORT_NAME;sortAsc=false;break;
+                        case 2:sortMode=SORT_DATE;sortAsc=false;break;
+                        case 3:sortMode=SORT_DATE;sortAsc=true;break;
+                        case 4:sortMode=SORT_SIZE;sortAsc=false;break;
+                        case 5:sortMode=SORT_SIZE;sortAsc=true;break;
+                        case 6:sortMode=SORT_EXT;sortAsc=true;break;
                     }
                     refreshList();
-                })
-                .show();
+                }).show();
     }
 
-    // ── Properties ───────────────────────────────────────────────────────────
-
-    private void showProperties(File file) {
+    private void showProperties(File f) {
         StringBuilder sb = new StringBuilder();
-        sb.append("Name: ").append(file.getName()).append("\n");
-        sb.append("Path: ").append(file.getAbsolutePath()).append("\n");
-        sb.append("Size: ").append(file.isDirectory() ? "—" : formatSize(file.length())).append("\n");
-        sb.append("Modified: ").append(dateFmt.format(new Date(file.lastModified()))).append("\n");
-        sb.append("Readable: ").append(file.canRead()).append("\n");
-        sb.append("Writable: ").append(file.canWrite());
+        sb.append("Name:     ").append(f.getName()).append("\n");
+        sb.append("Path:     ").append(f.getAbsolutePath()).append("\n");
+        sb.append("Size:     ").append(f.isDirectory()?"(folder)":formatSize(f.length())).append("\n");
+        sb.append("Modified: ").append(dateFmt.format(new Date(f.lastModified()))).append("\n");
+        sb.append("Readable: ").append(f.canRead()).append("\n");
+        sb.append("Writable: ").append(f.canWrite());
+        if (BINARY_EXTS.contains(ext(f.getName())))
+            sb.append("\n\nBinary file — not editable as text.");
 
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("Properties")
-                .setMessage(sb.toString())
-                .setPositiveButton("OK", null)
-                .setNeutralButton("Copy path", (d, w) ->
-                        copyText(file.getAbsolutePath(), "Path copied"))
+        new MaterialAlertDialogBuilder(this).setTitle("Properties").setMessage(sb)
+                .setPositiveButton("OK",null)
+                .setNeutralButton("Copy path",(d,w)->copyText(f.getAbsolutePath(),"Path copied"))
                 .show();
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // ── Utilities ─────────────────────────────────────────────────────────────
 
-    private void copyText(String text, String toast) {
-        ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-        cm.setPrimaryClip(ClipData.newPlainText("file", text));
-        SketchwareUtil.toast(toast);
+    private void deleteRecursive(File f) {
+        if (f.isDirectory()) { File[] ch=f.listFiles(); if(ch!=null) for(File c:ch) deleteRecursive(c); }
+        f.delete();
     }
 
     private void copyDir(File src, File dst) throws Exception {
         dst.mkdirs();
-        File[] files = src.listFiles();
-        if (files == null) return;
-        for (File f : files) {
-            if (f.isDirectory()) copyDir(f, new File(dst, f.getName()));
-            else FileUtil.copyFile(f.getAbsolutePath(), new File(dst, f.getName()).getAbsolutePath());
+        File[] ch = src.listFiles();
+        if (ch==null) return;
+        for (File f:ch) {
+            if(f.isDirectory()) copyDir(f,new File(dst,f.getName()));
+            else FileUtil.copyFile(f.getAbsolutePath(),new File(dst,f.getName()).getAbsolutePath());
         }
     }
 
-    private String formatSize(long bytes) {
-        if (bytes < 1024) return bytes + " B";
-        if (bytes < 1024 * 1024) return new DecimalFormat("0.#").format(bytes / 1024.0) + " KB";
-        return new DecimalFormat("0.#").format(bytes / (1024.0 * 1024)) + " MB";
+    private void copyText(String text, String toast) {
+        ((ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE))
+                .setPrimaryClip(ClipData.newPlainText("file",text));
+        SketchwareUtil.toast(toast);
     }
 
-    private String getExt(String name) {
-        int idx = name.lastIndexOf('.');
-        return idx >= 0 ? name.substring(idx + 1).toLowerCase() : "";
+    private String ext(String name) {
+        int i=name.lastIndexOf('.'); return i>=0?name.substring(i+1).toLowerCase():"";
     }
 
-    // ── Data model ────────────────────────────────────────────────────────────
+    private String formatSize(long b) {
+        if(b<1024) return b+" B";
+        if(b<1024*1024) return new DecimalFormat("0.#").format(b/1024.0)+" KB";
+        return new DecimalFormat("0.#").format(b/(1024.0*1024))+" MB";
+    }
+
+    // ── Model ─────────────────────────────────────────────────────────────────
 
     static class FileNode {
         final File file;
-        final boolean isSection;
-        final String sectionTitle;
-
-        FileNode(File file, boolean isSection) {
-            this.file = file;
-            this.isSection = isSection;
-            this.sectionTitle = null;
-        }
-
-        FileNode(String title) {
-            this.file = null;
-            this.isSection = true;
-            this.sectionTitle = title;
-        }
+        FileNode(File f) { file=f; }
     }
 
     // ── Adapter ───────────────────────────────────────────────────────────────
 
     class FileAdapter extends RecyclerView.Adapter<FileAdapter.VH> {
         private final List<FileNode> nodes = new ArrayList<>();
-        private final List<FileNode> allNodes = new ArrayList<>();
 
         void setNodes(List<FileNode> list) {
-            allNodes.clear();
-            allNodes.addAll(list);
-            nodes.clear();
-            nodes.addAll(list);
-            notifyDataSetChanged();
+            nodes.clear(); nodes.addAll(list); notifyDataSetChanged();
         }
 
-        List<FileNode> getCurrentNodes() { return nodes; }
+        List<FileNode> getNodes() { return nodes; }
 
         @NonNull @Override
         public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
@@ -715,14 +601,12 @@ public class ProjectFileManagerActivity extends BaseAppCompatActivity {
                     .inflate(R.layout.item_file_node, parent, false);
             VH vh = new VH(v);
             v.setOnClickListener(view -> {
-                int pos = vh.getAdapterPosition();
-                if (pos != RecyclerView.NO_ID && pos < nodes.size())
-                    onFileClick(nodes.get(pos));
+                int p = vh.getAdapterPosition();
+                if (p!=RecyclerView.NO_ID && p<nodes.size()) onFileClick(nodes.get(p));
             });
             v.setOnLongClickListener(view -> {
-                int pos = vh.getAdapterPosition();
-                if (pos != RecyclerView.NO_ID && pos < nodes.size())
-                    onFileLongClick(nodes.get(pos));
+                int p = vh.getAdapterPosition();
+                if (p!=RecyclerView.NO_ID && p<nodes.size()) onFileLongClick(nodes.get(p));
                 return true;
             });
             return vh;
@@ -730,83 +614,77 @@ public class ProjectFileManagerActivity extends BaseAppCompatActivity {
 
         @Override
         public void onBindViewHolder(@NonNull VH h, int pos) {
-            FileNode node = nodes.get(pos);
-            if (node.file == null) { h.tvName.setText("?"); return; }
-            File f = node.file;
+            File f = nodes.get(pos).file;
+            if (f==null) return;
 
-            // Icon + colors
-            String ext = getExt(f.getName());
-            h.tvIcon.setText(iconFor(ext, f.isDirectory()));
+            String e = ext(f.getName());
+            boolean isBin = BINARY_EXTS.contains(e);
+            boolean isDir = f.isDirectory();
+
+            // Icon text + color
+            h.tvIcon.setText(iconFor(e, isDir));
+            int color = colorFor(e, isDir, isBin);
             h.tvIcon.setBackgroundTintList(
-                    android.content.res.ColorStateList.valueOf(colorFor(ext, f.isDirectory())));
+                    android.content.res.ColorStateList.valueOf(color));
 
             h.tvName.setText(f.getName());
+            h.tvName.setAlpha(isBin ? 0.5f : 1f);
 
-            // Info line
-            if (f.isDirectory()) {
-                int count = f.listFiles() != null ? f.listFiles().length : 0;
-                h.tvInfo.setText(count + " items  •  " + dateFmt.format(new Date(f.lastModified())));
+            if (isDir) {
+                File[] ch = f.listFiles();
+                int cnt = ch!=null?ch.length:0;
+                h.tvInfo.setText(cnt+" items  •  "+dateFmt.format(new Date(f.lastModified())));
                 h.tvArrow.setVisibility(View.VISIBLE);
             } else {
-                h.tvInfo.setText(formatSize(f.length()) + "  •  " +
-                        dateFmt.format(new Date(f.lastModified())));
+                String sizeStr = isBin ? formatSize(f.length())+" (binary)" : formatSize(f.length());
+                h.tvInfo.setText(sizeStr+"  •  "+dateFmt.format(new Date(f.lastModified())));
                 h.tvArrow.setVisibility(View.GONE);
             }
 
-            // Multi-select
-            h.checkbox.setVisibility(multiSelect ? View.VISIBLE : View.GONE);
-            if (multiSelect) {
-                h.checkbox.setChecked(selectedPaths.contains(f.getAbsolutePath()));
-            }
+            h.checkbox.setVisibility(multiSelect?View.VISIBLE:View.GONE);
+            if (multiSelect) h.checkbox.setChecked(selectedPaths.contains(f.getAbsolutePath()));
 
-            // Selected background
-            h.root.setBackgroundColor(
-                    selectedPaths.contains(f.getAbsolutePath()) ? 0x206200EE : 0);
+            h.root.setBackgroundColor(selectedPaths.contains(f.getAbsolutePath())?0x206200EE:0);
         }
 
-        private String iconFor(String ext, boolean dir) {
-            if (dir) return "D";
-            switch (ext) {
-                case "java":  return "J";
-                case "kt":    return "K";
-                case "xml":   return "X";
-                case "gradle":return "G";
-                case "png": case "jpg": case "webp": return "I";
-                case "svg":   return "V";
-                case "json":  return "{}";
-                case "pro":   return "P";
-                default:      return ext.isEmpty() ? "?" : ext.substring(0,1).toUpperCase();
+        private String iconFor(String e, boolean dir) {
+            if(dir) return "D";
+            switch(e){
+                case "java": return "J"; case "kt": return "K";
+                case "xml":  return "X"; case "gradle": return "G";
+                case "json": return "{}"; case "png": case "jpg":
+                case "webp": return "IMG"; case "svg": return "SVG";
+                case "class": return "C"; case "dex": return "DEX";
+                default: return e.isEmpty()?"?":e.substring(0,1).toUpperCase();
             }
         }
 
-        private int colorFor(String ext, boolean dir) {
-            if (dir) return 0xFF2196F3;
-            switch (ext) {
-                case "java":  return 0xFFFF9800;
-                case "kt":    return 0xFF9C27B0;
-                case "xml":   return 0xFF4CAF50;
-                case "gradle":return 0xFF009688;
-                case "png": case "jpg": case "webp": case "svg": return 0xFFE91E63;
-                case "json":  return 0xFFFF5722;
-                default:      return 0xFF607D8B;
+        private int colorFor(String e, boolean dir, boolean bin) {
+            if(bin) return 0xFF9E9E9E;
+            if(dir) return 0xFF2196F3;
+            switch(e){
+                case "java":   return 0xFFFF9800;
+                case "kt":     return 0xFF9C27B0;
+                case "xml":    return 0xFF4CAF50;
+                case "gradle": return 0xFF009688;
+                case "json":   return 0xFFFF5722;
+                case "svg": case "png": case "jpg": return 0xFFE91E63;
+                default:       return 0xFF607D8B;
             }
         }
 
         @Override public int getItemCount() { return nodes.size(); }
 
         class VH extends RecyclerView.ViewHolder {
-            LinearLayout root;
-            CheckBox checkbox;
-            TextView tvIcon, tvName, tvInfo, tvArrow;
-
-            VH(View v) {
-                super(v);
-                root     = (LinearLayout) v;
-                checkbox = v.findViewById(R.id.checkbox);
-                tvIcon   = v.findViewById(R.id.tv_icon);
-                tvName   = v.findViewById(R.id.tv_name);
-                tvInfo   = v.findViewById(R.id.tv_info);
-                tvArrow  = v.findViewById(R.id.tv_arrow);
+            LinearLayout root; CheckBox checkbox;
+            TextView tvIcon,tvName,tvInfo,tvArrow;
+            VH(View v){
+                super(v); root=(LinearLayout)v;
+                checkbox=v.findViewById(R.id.checkbox);
+                tvIcon=v.findViewById(R.id.tv_icon);
+                tvName=v.findViewById(R.id.tv_name);
+                tvInfo=v.findViewById(R.id.tv_info);
+                tvArrow=v.findViewById(R.id.tv_arrow);
             }
         }
     }
