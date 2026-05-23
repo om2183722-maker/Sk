@@ -99,6 +99,11 @@ public class ViewCodeEditorActivity extends BaseAppCompatActivity {
         rootLayoutManager = new InjectRootLayoutManager(sc_id);
         String title = getIntent().getStringExtra("title");
         projectFile = jC.b(sc_id).b(title);
+        // projectFile can be null when opened from ProjectFileManager with generated file names
+        if (projectFile == null) {
+            projectFile = new ProjectFileBean();
+            projectFile.fileType = ProjectFileBean.PROJECT_FILE_TYPE_ACTIVITY;
+        }
         projectLibrary = jC.c(sc_id).c();
         getOnBackPressedDispatcher().addCallback(this, onBackPressedCallback);
         setSupportActionBar(binding.toolbar);
@@ -109,11 +114,13 @@ public class ViewCodeEditorActivity extends BaseAppCompatActivity {
                 onBackPressedCallback.handleOnBackPressed();
             }
         });
+        // Accept both "content" (native) and "code" (ProjectFileManager compat)
         content = getIntent().getStringExtra("content");
+        if (content == null) content = getIntent().getStringExtra("code");
         editor = binding.editor;
         editor.setTypefaceText(EditorUtils.getTypeface(this));
         editor.setTextSize(14);
-        editor.setText(content);
+        editor.setText(content != null ? content : "");
         EditorUtils.loadXmlConfig(editor);
         if (projectFile.fileType == ProjectFileBean.PROJECT_FILE_TYPE_ACTIVITY
                 && projectLibrary.isEnabled()) {
@@ -259,6 +266,8 @@ public class ViewCodeEditorActivity extends BaseAppCompatActivity {
     }
 
     private boolean isContentModified() {
+        // FIX: content can be null when opened from external sources (e.g. ProjectFileManager)
+        if (content == null) return false;
         return !content.equals(editor.getText().toString());
     }
 

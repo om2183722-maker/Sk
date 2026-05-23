@@ -28,12 +28,15 @@ import java.util.List;
 
 import a.a.a.ProjectBuilder;
 import a.a.a.jC;
+import a.a.a.wq;
 import a.a.a.yq;
 import mod.hey.studios.util.Helper;
 import pro.sketchware.R;
 import pro.sketchware.activities.editor.view.CodeViewerActivity;
 import pro.sketchware.activities.editor.view.ViewCodeEditorActivity;
 import pro.sketchware.databinding.ActivityProjectFileManagerBinding;
+import pro.sketchware.utility.FilePathUtil;
+import pro.sketchware.utility.FileUtil;
 import pro.sketchware.utility.SketchwareUtil;
 import pro.sketchware.utility.UI;
 
@@ -136,7 +139,7 @@ public class ProjectFileManagerActivity extends BaseAppCompatActivity {
 
         new Thread(() -> {
             try {
-                // Exact same code as SrcViewerActivity
+                // Step 1: Auto-generated files (same as SrcViewerActivity)
                 var yqVar = new yq(getBaseContext(), scId);
                 var fileManager = jC.b(scId);
                 var dataManager = jC.a(scId);
@@ -147,12 +150,33 @@ public class ProjectFileManagerActivity extends BaseAppCompatActivity {
                 builder.buildBuiltInLibraryInformation();
                 ArrayList<SrcCodeBean> beans =
                         yqVar.a(fileManager, dataManager, builder.getBuiltInLibraryManager());
+                if (beans == null) beans = new ArrayList<>();
 
+                // Step 2: Manually added Java/Kotlin files from files/java/
+                FilePathUtil fpu = new FilePathUtil();
+                String customJavaPath = fpu.getPathJava(scId);
+                java.io.File customJavaDir = new java.io.File(customJavaPath);
+                if (customJavaDir.exists()) {
+                    addFilesFromDir(customJavaDir, beans, scId);
+                }
+
+                // Step 3: AndroidManifest.xml
+                String manifestPath = wq.d(scId) + "app/src/main/AndroidManifest.xml";
+                java.io.File manifest = new java.io.File(manifestPath);
+                if (manifest.exists()) {
+                    SrcCodeBean mb = new SrcCodeBean();
+                    mb.srcFileName = "AndroidManifest.xml";
+                    mb.pkgName = "app/src/main";
+                    mb.source = FileUtil.readFile(manifestPath);
+                    beans.add(0, mb);
+                }
+
+                final ArrayList<SrcCodeBean> finalBeans = beans;
                 runOnUiThread(() -> {
                     binding.progressBar.setVisibility(View.GONE);
                     binding.recyclerView.setVisibility(View.VISIBLE);
 
-                    if (beans == null || beans.isEmpty()) {
+                    if (finalBeans.isEmpty()) {
                         binding.tvEmpty.setVisibility(View.VISIBLE);
                         binding.tvEmpty.setText(
                                 "No source files found.\nAdd at least one Activity to your project.");
@@ -160,8 +184,8 @@ public class ProjectFileManagerActivity extends BaseAppCompatActivity {
                         return;
                     }
 
-                    allBeans = beans;
-                    binding.toolbar.setSubtitle(beans.size() + " files");
+                    allBeans = finalBeans;
+                    binding.toolbar.setSubtitle(finalBeans.size() + " files");
                     applyFilter();
                 });
             } catch (Exception e) {
@@ -234,6 +258,40 @@ public class ProjectFileManagerActivity extends BaseAppCompatActivity {
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+
+    /** Scan a directory recursively and add .java/.kt/.xml files as SrcCodeBean */
+    private void addFilesFromDir(java.io.File dir, ArrayList<SrcCodeBean> out, String scId) {
+        java.io.File[] files = dir.listFiles();
+        if (files == null) return;
+        for (java.io.File f : files) {
+            if (f.isDirectory()) {
+                addFilesFromDir(f, out, scId);
+            } else {
+                String name = f.getName();
+                if (name.endsWith(".java") || name.endsWith(".kt") || name.endsWith(".xml")) {
+                    // Skip if already in list (avoid duplicates with auto-generated)
+                    boolean exists = false;
+                    for (SrcCodeBean b : out) {
+                        if (b.srcFileName != null && b.srcFileName.equals(name)) {
+                            exists = true; break;
+                        }
+                    }
+                    if (!exists) {
+                        SrcCodeBean bean = new SrcCodeBean();
+                        bean.srcFileName = name;
+                        bean.pkgName = f.getAbsolutePath()
+                                .replace(new FilePathUtil().getPathJava(scId), "")
+                                .replace(f.getName(), "")
+                                .replace("/", ".")
+                                .replaceAll("^\.+|\.+$", "");
+                        bean.source = FileUtil.readFile(f.getAbsolutePath());
+                        out.add(bean);
+                    }
+                }
+            }
+        }
     }
 
     // ── Adapter ───────────────────────────────────────────────────────────────
