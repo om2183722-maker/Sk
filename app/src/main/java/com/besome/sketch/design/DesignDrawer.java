@@ -30,6 +30,7 @@ import pro.sketchware.utility.SketchwareUtil;
 import pro.sketchware.utility.UI;
 import pro.sketchware.utility.ThemeUtils;
 import pro.sketchware.activities.tools.ProjectFileManagerActivity;
+import pro.sketchware.activities.tools.ImportAndroidStudioActivity;
 
 public class DesignDrawer extends LinearLayout {
     @SuppressLint("NonConstantResourceId")
@@ -55,6 +56,8 @@ public class DesignDrawer extends LinearLayout {
                     activity, ProjectFileManagerActivity.class);
             intent.putExtra(ProjectFileManagerActivity.EXTRA_SC_ID, designActivity.sc_id);
             activity.startActivity(intent);
+        } else if (id == R.id.item_import_as) {
+            activity.startActivity(new android.content.Intent(activity, ImportAndroidStudioActivity.class));
         } else if (id == R.id.item_resource_manager) {
             designActivity.toResourceManager();
         } else if (id == R.id.item_resource_editor) {
@@ -127,6 +130,7 @@ public class DesignDrawer extends LinearLayout {
         addDrawerItem(R.id.item_image_manager, R.drawable.ic_mtrl_image, R.string.design_drawer_menu_title_image, R.string.design_drawer_menu_description_image, content);
         addDrawerItem(R.id.item_sound_manager, R.drawable.ic_mtrl_music, R.string.design_drawer_menu_title_sound, R.string.design_drawer_menu_description_sound, content);
         addDrawerItem(R.id.item_font_manager, R.drawable.ic_mtrl_font, R.string.design_drawer_menu_title_font, R.string.design_drawer_menu_description_font, content);
+        addDrawerItem(R.id.item_import_as,    R.drawable.ic_mtrl_upload,       "Import AS Project", "Import Android Studio ZIP", content);
         addDrawerItem(R.id.item_file_manager, R.drawable.ic_mtrl_folder_code, "Project Files", "Browse & edit all project files", content);
         addDrawerItem(R.id.item_java_manager, R.drawable.ic_mtrl_java, R.string.text_title_menu_java, R.string.text_subtitle_menu_java, content);
         addDrawerItem(R.id.item_resource_manager, R.drawable.ic_mtrl_folder, R.string.text_title_menu_resource, R.string.text_subtitle_menu_resource, content);

@@ -22,5 +22,11 @@
     <item name="item_xml_command_manager" type="id" />
     <item name="item_logcat_reader" type="id" />
     <item name="item_collection_manager" type="id" />
+    <item name="item_import_as" type="id" />
+
+    <item name="item_file_manager" type="id" />
+    <item name="item_import_as" type="id" />
+    <item name="item_import_as" type="id" />
+
     <item name="item_file_manager" type="id" />
 </resources>

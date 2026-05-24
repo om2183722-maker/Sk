@@ -78,6 +78,7 @@ import a.a.a.DB;
 import a.a.a.GB;
 import a.a.a.Ox;
 import a.a.a.ProjectBuilder;
+import mod.hey.studios.build.BuildSettings;
 import a.a.a.ViewEditorFragment;
 import a.a.a.bB;
 import a.a.a.bC;
@@ -1058,6 +1059,7 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
         public volatile boolean canceled;
         private volatile boolean isBuildFinished;
         private boolean isShowingNotification = false;
+        private android.os.PowerManager.WakeLock wakeLock;
 
         public BuildTask(DesignActivity activity) {
             super(activity);
@@ -1082,6 +1084,18 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
                 updateRunButton(true);
                 activity.r.a("P1I10", true);
                 activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+                // WakeLock for background build
+                BuildSettings bs = new BuildSettings(DesignActivity.sc_id);
+                if ("true".equals(bs.getValue(BuildSettings.SETTING_BACKGROUND_BUILD, "true"))) {
+                    android.os.PowerManager pm = (android.os.PowerManager)
+                            activity.getSystemService(Context.POWER_SERVICE);
+                    if (pm != null) {
+                        wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK,
+                                "SketchwarePro:BuildWakeLock");
+                        wakeLock.acquire(30 * 60 * 1000L);
+                    }
+                }
 
                 maybeShowNotification();
             });
@@ -1116,6 +1130,22 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
                 }
 
                 onProgress("Generating source code...", 2);
+
+                // ── Build Live Preview: show current layout in notification ──
+                // After AAPT2, layout XML is ready — render a mini preview
+                try {
+                    BuildSettings bsLive = new BuildSettings(sc_id);
+                    if ("true".equals(bsLive.getValue(BuildSettings.SETTING_NOTIF_SHOW_FILE, "true"))) {
+                        String layoutPath = wq.d(sc_id) + "app/src/main/res/layout/";
+                        java.io.File layoutDir = new java.io.File(layoutPath);
+                        if (layoutDir.exists()) {
+                            java.io.File[] layouts = layoutDir.listFiles(f -> f.getName().endsWith(".xml"));
+                            if (layouts != null && layouts.length > 0) {
+                                onProgress("Generating: " + layouts[0].getName(), 2);
+                            }
+                        }
+                    }
+                } catch (Exception ignored) {}
                 kC kC = jC.d(sc_id);
                 kC.b(q.resDirectoryPath + File.separator + "drawable-xhdpi");
                 kC = jC.d(sc_id);
@@ -1266,6 +1296,11 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
         private void onPostExecute() {
             DesignActivity activity = getActivity();
             if (activity == null) return;
+
+            if (wakeLock != null && wakeLock.isHeld()) {
+                wakeLock.release();
+                wakeLock = null;
+            }
 
             activity.runOnUiThread(() -> {
                 if (!activity.isDestroyed()) {
