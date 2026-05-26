@@ -285,7 +285,7 @@ public class ProjectFileManagerActivity extends BaseAppCompatActivity {
                                 .replace(new FilePathUtil().getPathJava(scId), "")
                                 .replace(f.getName(), "")
                                 .replace("/", ".")
-                                .replaceAll("^\.+|\.+$", "");
+                                .replaceAll("^[.]+|[.]+$", "");
                         bean.source = FileUtil.readFile(f.getAbsolutePath());
                         out.add(bean);
                     }
