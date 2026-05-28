@@ -44,6 +44,7 @@ import a.a.a.lC;
 import dev.chrisbanes.insetter.Insetter;
 import mod.hey.studios.project.ProjectTracker;
 import mod.hey.studios.project.backup.BackupRestoreManager;
+import pro.sketchware.activities.tools.ImportAndroidStudioActivity;
 import pro.sketchware.R;
 import pro.sketchware.activities.main.activities.MainActivity;
 import pro.sketchware.databinding.MyprojectsBinding;
@@ -191,6 +192,12 @@ public class ProjectsFragment extends DA {
 
             @Override
             public boolean onMenuItemSelected(@NonNull MenuItem menuItem) {
+                if (menuItem.getItemId() == R.id.action_import_as) {
+                    requireContext().startActivity(
+                        new android.content.Intent(requireContext(),
+                            ImportAndroidStudioActivity.class));
+                    return true;
+                }
                 return false;
             }
         };

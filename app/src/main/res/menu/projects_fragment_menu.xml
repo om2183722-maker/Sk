@@ -10,4 +10,10 @@
         app:showAsAction="always|collapseActionView"
         tools:ignore="AlwaysShowAction" />
 
+
+    <item
+        android:id="@+id/action_import_as"
+        android:title="Import Android Studio project"
+        app:showAsAction="never" />
+
 </menu>
